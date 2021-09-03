@@ -1,0 +1,26 @@
+# **__pycache__
+# **.pyc
+
+# .vscode
+
+# data
+# models
+# unused
+
+# **runs
+# **drive_figures
+# **cifar10-inversion
+
+# **example_logs
+
+# **.DS_Store
+
+# **__*
+# .*
+
+data
+models
+
+old
+
+!.gitignore
