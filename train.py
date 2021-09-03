@@ -69,7 +69,6 @@ else:
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
-
 valid_acc = test_accuracy(model, valid_loader, name='valid', device=device)
 
 if not os.path.exists(args.ckpt) or args.resume_training:

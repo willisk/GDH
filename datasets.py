@@ -167,8 +167,8 @@ class CIFAR10Wrapper():
         # T.RandomApply([T.ColorJitter(brightness=.1, hue=.15)], p=0.2),
     ])
 
-    transform_augment = T.Compose([T.ToTensor(), augment, normalize])
-    transform = T.Compose([T.ToTensor(), normalize])
+    transform_augment = T.Compose([augment, normalize])
+    transform = normalize
 
     def __init__(self, augment=True):
 
@@ -179,7 +179,7 @@ class CIFAR10Wrapper():
         self.full_set = ConcatDataset([copy(train_set), copy(test_set)])
 
         self.train_set, self.valid_set = random_split_frac(train_set, [0.8, 0.2], seed=0)
-        self.test_set = test_set
+        self.test_set = Subset(test_set)
 
         self.train_set.transform = self.transform_augment if augment else self.transform
         self.valid_set.transform = self.transform
