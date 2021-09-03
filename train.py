@@ -71,7 +71,7 @@ else:
 
 valid_acc = test_accuracy(model, valid_loader, name='valid', device=device)
 
-if not os.path.exists(args.ckpt) or args.resume_training:
+if not os.path.exists(args.ckpt) or args.resume_training or args.reset:
 
     print('Training ' f'{model},'
           f'params:\t{num_params(model) / 1000:.2f} K')
@@ -114,8 +114,8 @@ if not os.path.exists(args.ckpt) or args.resume_training:
                        'acc': best_acc, 'logs': logs}, args.ckpt)
 
     if args.save_best:
-        state_dict = torch.load(args.ckpt, map_location=device)['model']
+        state_dict = torch.load(args.ckpt, map_location=device)
         print(f"Loading best model {args.ckpt} ({state_dict['epoch']} epochs), valid acc {best_acc:.3f}")
 
 
-pretty_plot(logs, smoothing=50)
+# pretty_plot(logs, smoothing=50)

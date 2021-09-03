@@ -159,7 +159,7 @@ class CIFAR10Wrapper():
     unnormalize = NormalizeInverse(mean, std)
 
     augment = T.Compose([
-        T.RandomCrop(28, padding=4),
+        T.RandomCrop(32, padding=4),
         T.RandomHorizontalFlip(),
         T.RandomVerticalFlip(),
         # T.RandomApply([T.RandomRotation(15)], p=0.3),
@@ -198,7 +198,7 @@ class CIFAR10Distorted(ImageFolderDataset, CIFAR10Wrapper):
     unnormalize = NormalizeInverse(mean, std)
 
     augment = T.Compose([
-        T.RandomCrop(28, padding=4),
+        T.RandomCrop(32, padding=4),
         T.RandomHorizontalFlip(),
         T.RandomVerticalFlip(),
     ])

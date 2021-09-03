@@ -1,3 +1,5 @@
+# export CUDA_VISIBLE_DEVICES=0
+
 python train.py \
 --dataset CIFAR10 \
 --network resnet34 \
@@ -8,6 +10,7 @@ python train.py \
 --num_epochs 20 \
 --reset \
 
+# --resume_training
 
 # --dataset PBCBarcelona \
 # --model_ckpt models/PBCBarcelona_resnet34_no_augmentation \

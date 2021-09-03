@@ -7,8 +7,8 @@ python transfer.py \
 --lr 0.01 \
 --batch_size 64 \
 --num_epochs 20 \
---reset \
 
+# --reset \
 # --unsupervised
 
 # --dataset PBCBarcelona \

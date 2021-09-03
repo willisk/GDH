@@ -4,3 +4,4 @@ tqdm>=4.51.0
 matplotlib>=3.3.0
 numpy>=1.18.5
 tifffile
+segmentation-models-pytorch

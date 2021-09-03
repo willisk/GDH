@@ -4,6 +4,8 @@ import torch.optim
 
 import torch.nn.functional as F
 
+import segmentation_models_pytorch as smp
+
 
 def conv_block(in_channels, out_channels, stride=1):
     return nn.Sequential(
