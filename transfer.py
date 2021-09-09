@@ -5,12 +5,13 @@ import torch.nn as nn
 
 from torch.utils.data import DataLoader
 from utils import num_params, test_accuracy, pretty_plot, get_bn_layers
-from datasets import get_dataset
+from datasets import Subset, get_dataset
 
 from models import DistortionModelConv, resnet18, resnet34
 import segmentation_models_pytorch as smp
 
 from debug import debug
+from torchvision.utils import make_grid, save_image
 
 import argparse
 
@@ -23,8 +24,10 @@ parser.add_argument('--model_from', default='models/model.ckpt', help='Model che
 parser.add_argument('--ckpt', default='auto', help='Model checkpoint for saving/loading.')
 
 parser.add_argument('--cuda', action='store_true')
+parser.add_argument('--size', type=int, default=4096, help='Sample used for transfer.')
 parser.add_argument('--num_epochs', type=int, default=3, help='Number of training epochs.')
-parser.add_argument('--lr', type=float, default=0.01, help='learning rate')
+parser.add_argument('--lr', type=float, default=0.1, help='learning rate')
+parser.add_argument('--f_stats', type=float, default=0.01, help='stats multiplier')
 parser.add_argument('--batch_size', type=int, default=64, help='batch size')
 
 parser.add_argument('--unsupervised', action='store_true', help='Don\'t use label information.')
@@ -37,12 +40,20 @@ args = parser.parse_args()
 device = 'cuda'  # if args.cuda else 'cpu'
 
 if args.ckpt == 'auto':
-    args.ckpt = args.model_from.replace('.ckpt', f'_transfer-to_{args.dataset_to}.ckpt')
+    save_loc = args.model_from.replace(
+        '.ckpt', f'_transfer-to_{args.dataset_to}_lr={args.lr:1.0e}_f={args.f_stats:1.0e}')
+
+os.makedirs(save_loc, exist_ok=True)
+
+model_ckpt = f'{save_loc}/model.ckpt'
+plot_loc = f'{save_loc}/plot.png'
+# `plot_loc = args.ckpt.split('.')[0] + '.png'
 
 print('\n'.join(f'{k}={v}' for k, v in vars(args).items()))
 
 dataset_to = get_dataset(args.dataset_to)
-train_loader = DataLoader(dataset_to.train_set, batch_size=args.batch_size, shuffle=True, num_workers=16)
+train_set = Subset(dataset_to.train_set, range(args.size))
+train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True, num_workers=16)
 valid_loader = DataLoader(dataset_to.valid_set, batch_size=args.batch_size, shuffle=False, num_workers=16)
 test_loader = DataLoader(dataset_to.test_set, batch_size=args.batch_size, shuffle=False, num_workers=16)
 
@@ -53,18 +64,16 @@ print(
 
 ##################################### Train Model #####################################
 
-plot_loc = args.ckpt.split('.')[0] + '.png'
-
 loss_fn = nn.CrossEntropyLoss()
 
-if os.path.exists(args.ckpt) and not args.reset:
-    state_dict = torch.load(args.ckpt, map_location=device)
+if os.path.exists(model_ckpt) and not args.reset:
+    state_dict = torch.load(model_ckpt, map_location=device)
     transfer_model = state_dict['model']
     optimizer = state_dict['optimizer']
     init_epoch = state_dict['epoch']
     logs = state_dict['logs']
     best_acc = state_dict['acc']
-    print(f"Loading model {args.ckpt} ({init_epoch} epochs), valid acc {best_acc:.3f}")
+    print(f"Loading model {model_ckpt} ({init_epoch} epochs), valid acc {best_acc:.3f}")
 else:
     init_epoch = 0
     best_acc = 0
@@ -119,40 +128,36 @@ valid_acc = test_accuracy(full_model, valid_loader, name='valid', device=device)
 
 bn_layers = get_bn_layers(classifier)
 
-layer_activations = [None] * len(bn_layers)
+bn_losses = [None] * len(bn_layers)
 
 
 def layer_hook_wrapper(idx):
-    def hook(_module, inputs, _outputs):
-        layer_activations[idx] = inputs[0]
+    def hook(module, inputs, _outputs):
+        x = inputs[0]
+        bn_losses[idx] = ((module.running_mean - x.mean(dim=[0, 2, 3])).norm(2)
+                          + (module.running_var - x.var(dim=[0, 2, 3])).norm(2))
     return hook
 
 
 for l, layer in enumerate(bn_layers):
     layer.register_forward_hook(layer_hook_wrapper(l))
 
-
-def get_bn_loss():
-    return sum([
-        ((bn.running_mean - x.mean(dim=[0, 2, 3])) ** 2).sum()
-        + ((bn.running_var - x.var(dim=[0, 2, 3])) ** 2).sum()
-        for bn, x in zip(bn_layers, layer_activations)
-    ])
-
-
-if not os.path.exists(args.ckpt) or args.resume_training or args.reset:
+if not os.path.exists(model_ckpt) or args.resume_training or args.reset:
 
     print('Training transfer model ' f'{args.network}, '
           f'params:\t{num_params(transfer_model) / 1000:.2f} K')
 
     for epoch in range(init_epoch, init_epoch + args.num_epochs):
         full_model.train()
+        full_model.to(device)
+
         step_start = epoch * len(train_loader)
         for step, (x, y) in enumerate(train_loader, start=step_start):
             x, y = x.to(device), y.to(device)
 
             logits = full_model(x)
-            loss_bn = get_bn_loss()
+
+            loss_bn = args.f_stats * sum(bn_losses)
 
             acc = (logits.argmax(dim=1) == y).float().mean().item()
 
@@ -181,17 +186,24 @@ if not os.path.exists(args.ckpt) or args.resume_training or args.reset:
         interpolate_valid_acc = torch.linspace(valid_acc_old, valid_acc, steps=len(train_loader)).tolist()
         logs['val_acc'].extend(interpolate_valid_acc)
 
+        view_batch = next(iter(valid_loader))[0][:32].to(device)
+        samples = transfer_model(view_batch)
+
+        if epoch % 5 == 0:
+            # print(f'saving images to {save_loc}/sample_{epoch:02d}.png')
+            save_image(make_grid(samples.cpu(), normalize=True), f'{save_loc}/sample_{epoch:02d}.png')
+
         if not args.save_best or valid_acc > best_acc:
             pretty_plot(logs, steps_per_epoch=len(train_loader), smoothing=50, save_loc=plot_loc)
             best_acc = valid_acc
 
-            print(f'Saving transfer_model to {args.ckpt}')
-            torch.save({'model': transfer_model, 'optimizer': optimizer, 'epoch': epoch + 1,
-                       'acc': best_acc, 'logs': logs}, args.ckpt)
+            print(f'Saving transfer_model to {model_ckpt}')
+            torch.save({'model': transfer_model.cpu(), 'optimizer': optimizer, 'epoch': epoch + 1,
+                       'acc': best_acc, 'logs': logs}, model_ckpt)
 
     if args.save_best:
-        state_dict = torch.load(args.ckpt, map_location=device)
-        print(f"Loading best model {args.ckpt} ({state_dict['epoch']} epochs), valid acc {best_acc:.3f}")
+        state_dict = torch.load(model_ckpt, map_location=device)
+        print(f"Loading best model {model_ckpt} ({state_dict['epoch']} epochs), valid acc {best_acc:.3f}")
 
 
 pretty_plot(logs, smoothing=50)

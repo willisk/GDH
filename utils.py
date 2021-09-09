@@ -33,7 +33,7 @@ def transpose_dict(d):
 
 def pretty_plot(logs, steps_per_epoch=1, smoothing=0, save_loc=None):
     vals = torch.Tensor(list(logs.values()))
-    if smoothing:
+    if smoothing and len(vals) > smoothing:
         vals = F.conv1d(vals.reshape((len(vals), 1, -1)), torch.ones((1, 1, smoothing)) / smoothing).squeeze()
     y_max = max(vals.mean(dim=1) + vals.std(dim=1) * 1.5)
     x = torch.arange(vals.shape[1]) / steps_per_epoch
