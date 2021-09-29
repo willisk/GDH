@@ -1,3 +1,4 @@
+from matplotlib.colors import rgb_to_hsv
 import matplotlib.pyplot as plt
 import torch
 from torch import nn
@@ -9,18 +10,21 @@ def num_params(model):
 
 
 @torch.no_grad()
-def test_accuracy(model, data_loader, name='test', device='cuda'):
+def test_accuracy(model, data_loader, transform=None, name='test', device='cuda'):
     num_total = 0
     num_correct = 0
     model.eval()
     model.to(device)
     for x, y in data_loader:
         x, y = x.to(device), y.to(device)
+        if transform is not None:
+            x = transform(x)
         out = model(x)
         num_correct += (out.argmax(dim=1) == y).sum().item()
         num_total += len(x)
     acc = num_correct / num_total
-    print(f'{name} accuracy: {acc:.3f}')
+    if name is not None:
+        print(f'{name} accuracy: {acc:.3f}')
     return acc
 
 
@@ -29,6 +33,13 @@ def transpose_dict(d):
         return [{k: v for k, v in zip(d.keys(), vals)} for vals in zip(*d.values())]
     elif isinstance(d, list):
         return {k: v for k, v in zip(d[0].keys(), zip(*[e.values() for e in d]))}
+
+
+# def rbg_to_luminance(x):
+#     assert x.ndim == 4
+#     return (x[:, 0, None, :, :] * 0.2126 +
+#             x[:, 1, None, :, :] * 0.7152 +
+#             x[:, 2, None, :, :] * 0.0722)
 
 
 def pretty_plot(logs, steps_per_epoch=1, smoothing=0, save_loc=None):
@@ -71,16 +82,19 @@ def get_file_name(path):
     return path.split('/')[-1].split('.')[0]
 
 
-def get_bn_layers(net):
-    # ignore_types = ['activation', 'loss', 'container', 'pooling']
+def get_layers(net, layer_type):
     all_layers = []
     for layer in net.children():
         if len(list(layer.children())) == 0:
-            if 'batchnorm' in layer.__module__:
+            if isinstance(layer, layer_type):
                 all_layers.append(layer)
         else:
-            all_layers += get_bn_layers(layer)
+            all_layers += get_layers(layer, layer_type)
     return all_layers
+
+
+def get_bn_layers(net):
+    return get_layers(net, nn.BatchNorm2d)
 
 
 @torch.no_grad()

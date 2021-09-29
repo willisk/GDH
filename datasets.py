@@ -1,9 +1,10 @@
 import os
 import torch
 import numpy as np
+from torch import nn
 
 from torch.utils.data import Dataset, DataLoader, ConcatDataset
-from torchvision.datasets import MNIST, CIFAR10
+from torchvision.datasets import MNIST, CIFAR10, SVHN
 import torchvision.transforms as T
 
 from models import DistortionModelConv
@@ -27,7 +28,7 @@ IMAGE_FILE_TYPES = ['jpg', 'png', 'tif', 'tiff', 'pt']
 os.makedirs('data', exist_ok=True)
 
 
-def get_dataset(dataset):
+def get_dataset(dataset, train_augmentation=False):
     if dataset == 'PBCBarcelona':
         return PBCBarcelona()
     if dataset == 'PBCBarcelona_2x':
@@ -35,33 +36,79 @@ def get_dataset(dataset):
     if dataset == 'PBCBarcelona_4x':
         return PBCBarcelona(reduce=4)
     if dataset == 'MNIST':
-        pass
-        # return MNISTWrapper()
+        return MNISTWrapper(train_augmentation)
+    if dataset == 'SVHN':
+        return SVHNWrapper(train_augmentation)
     elif dataset == 'CIFAR10':
-        return CIFAR10Wrapper()
+        return CIFAR10Wrapper(train_augmentation)
     elif dataset == 'CIFAR10Distorted':
-        return CIFAR10Distorted()
+        return CIFAR10Distorted(train_augmentation)
 
 
-# class MNISTWrapper():
-#     def __init__(self):
-#         self.in_channels = 1
-#         self.num_classes = 10
+class TorchDatasetWrapper():
+    def __init__(self, train_set, test_set, mean, std, train_augmentation=False, transform=None):
+        self.normalize = T.Normalize(mean, std)
+        self.unnormalize = NormalizeInverse(mean, std)
 
-#         train_transform = T.Compose([T.RandomCrop(28, padding=4),   # XXX unnecessary?
-#                                      T.RandomHorizontalFlip(),
-#                                      T.ToTensor(),
-#                                      T.Normalize(0.1307, 0.3080)])
-#         test_transform = T.Compose([T.ToTensor(),
-#                                     T.Normalize(0.1307, 0.3080)])
+        self.augment = T.Compose([
+            # T.RandomCrop(32, padding=4),
+            T.RandomHorizontalFlip(),
+            T.RandomVerticalFlip(),
+            # T.RandomApply([T.RandomRotation(15)], p=0.3),
+            # T.RandomApply([T.RandomAdjustSharpness(0.45)], p=0.3),
+            # T.RandomApply([T.ColorJitter(brightness=.1, hue=.15)], p=0.2),
+        ])
 
-#         train_set = MNIST('data', train=True, transform=train_transform, download=True)
-#         test_set = MNIST('data', train=False, transform=test_transform, download=True)
+        if transform is None:
+            self.transform = self.normalize
+        else:
+            self.transform = T.Compose([transform, self.normalize])
 
-#         self.full_set = ConcatDataset(train_set, test_set)
+        # no augmentation; needed for distorted dataset creation
+        self.full_set = ConcatDataset([copy(train_set), copy(test_set)])
 
-#         self.train_set, self.valid_set = random_split_frac(train_set, [0.8, 0.2], seed=0)
-#         self.test_set = test_set
+        self.train_set, self.valid_set = random_split_frac(train_set, [0.8, 0.2], seed=0)
+        self.test_set = Subset(test_set)
+
+        self.train_set.transform = T.Compose([self.augment, self.transform]) if train_augmentation else self.transform
+        self.valid_set.transform = self.transform
+        self.test_set.transform = self.transform
+
+        labels = train_set.labels if hasattr(train_set, 'labels') else train_set.targets
+        self.classes = list(set([label.item() if isinstance(label, torch.Tensor) else label for label in labels]))
+        self.input_shape = self.train_set[0][0].shape
+        self.in_channels = self.input_shape[0]
+        self.num_classes = len(self.classes)
+
+
+class SVHNWrapper(TorchDatasetWrapper):
+    def __init__(self, train_augmentation=False):
+        train_set = SVHN(root='data', split='train', transform=T.ToTensor(), download=True)
+        test_set = SVHN(root='data', split='test', transform=T.ToTensor(), download=True)
+        super().__init__(train_set, test_set,
+                         mean=[0.4373, 0.4434, 0.4724], std=[0.1955, 0.1985, 0.1943],
+                         train_augmentation=train_augmentation)
+
+
+class CIFAR10Wrapper(TorchDatasetWrapper):
+    def __init__(self, train_augmentation=False):
+        train_set = CIFAR10(root='data', train=True, transform=T.ToTensor(), download=True)
+        test_set = CIFAR10(root='data', train=False, transform=T.ToTensor(), download=True)
+        super().__init__(train_set, test_set,
+                         mean=[0.4914, 0.4822, 0.4465], std=[0.2464, 0.2428, 0.2608], train_augmentation=train_augmentation)
+
+
+class MNISTWrapper(TorchDatasetWrapper):
+    def __init__(self, train_augmentation=False):
+        train_set = MNIST(root='data', train=True, download=True)
+        train_set = MNIST(root='data', train=True, transform=T.ToTensor(), download=True)
+        test_set = MNIST(root='data', train=False, transform=T.ToTensor(), download=True)
+
+        transform = nn.ZeroPad2d(2)  # ensure 32x32
+
+        super().__init__(train_set, test_set, mean=[0.1308], std=[0.3081],
+                         train_augmentation=train_augmentation, transform=transform)
+
 
 class ImageFolderDataset(Dataset):
     """Creates a dataset of images in `img_dir` and corresponding masks in `mask_dir`.
@@ -149,64 +196,25 @@ class NormalizeInverse(T.Normalize):
         super().__init__(mean=mean_inv, std=std_inv)
 
 
-class CIFAR10Wrapper():
-    in_channels = 3
-    num_classes = 10
+class CIFAR10Distorted(ImageFolderDataset):  # , CIFAR10Wrapper):
 
-    mean = [0.4914, 0.4822, 0.4465]
-    std = [0.2464, 0.2428, 0.2608]
-    normalize = T.Normalize(mean, std)
-    unnormalize = NormalizeInverse(mean, std)
+    # # distorted mean, std
+    # mean = [0.9079, 0.7855, 0.4956]
+    # std = [0.4956, 0.3020, 0.3052]
 
-    augment = T.Compose([
-        T.RandomCrop(32, padding=4),
-        T.RandomHorizontalFlip(),
-        T.RandomVerticalFlip(),
-        # T.RandomApply([T.RandomRotation(15)], p=0.3),
-        # T.RandomApply([T.RandomAdjustSharpness(0.45)], p=0.3),
-        # T.RandomApply([T.ColorJitter(brightness=.1, hue=.15)], p=0.2),
-    ])
+    # normalize = T.Normalize(mean, std)
+    # unnormalize = NormalizeInverse(mean, std)
 
-    transform_augment = T.Compose([augment, normalize])
-    transform = normalize
+    # augment = T.Compose([
+    #     T.RandomCrop(32, padding=4),
+    #     T.RandomHorizontalFlip(),
+    #     T.RandomVerticalFlip(),
+    # ])
 
-    def __init__(self, augment=True):
+    # transform_augment = T.Compose([augment, normalize])
+    # transform = T.Compose([normalize])
 
-        train_set = CIFAR10('data', train=True, transform=T.ToTensor(), download=True)
-        test_set = CIFAR10('data', train=False, transform=T.ToTensor(), download=True)
-
-        # no augmentation; needed for distorted dataset creation
-        self.full_set = ConcatDataset([copy(train_set), copy(test_set)])
-
-        self.train_set, self.valid_set = random_split_frac(train_set, [0.8, 0.2], seed=0)
-        self.test_set = Subset(test_set)
-
-        self.train_set.transform = self.transform_augment if augment else self.transform
-        self.valid_set.transform = self.transform
-        self.test_set.transform = self.transform
-
-        self.classes = train_set.classes
-
-
-class CIFAR10Distorted(ImageFolderDataset, CIFAR10Wrapper):
-
-    # distorted mean, std
-    mean = [0.9079, 0.7855, 0.4956]
-    std = [0.4956, 0.3020, 0.3052]
-
-    normalize = T.Normalize(mean, std)
-    unnormalize = NormalizeInverse(mean, std)
-
-    augment = T.Compose([
-        T.RandomCrop(32, padding=4),
-        T.RandomHorizontalFlip(),
-        T.RandomVerticalFlip(),
-    ])
-
-    transform_augment = T.Compose([augment, normalize])
-    transform = T.Compose([normalize])
-
-    def __init__(self, augment=True):
+    def __init__(self, train_augmentation=True):
 
         img_dir = f'data/CIFAR10_distorted_1e-01'
 
@@ -218,7 +226,8 @@ class CIFAR10Distorted(ImageFolderDataset, CIFAR10Wrapper):
         self.full_set = self
         self.train_set, self.valid_set, self.test_set = random_split_frac(self, [0.7, 0.15, 0.15], seed=0)
 
-        self.train_set.transform = self.transform_augment
+        self.train_set.transform = self.transform_augment if train_augmentation else self.transform
+        self.train_set.transform = self.transform
         self.valid_set.transform = self.transform
         self.test_set.transform = self.transform
 
@@ -284,7 +293,7 @@ def create_distorted_dataset(dataset, folder_out='auto', strength=0.1, batch_siz
         os.makedirs(folder_out, exist_ok=True)
 
         dataset = get_dataset(dataset)
-        train_loader = DataLoader(dataset.full_set, batch_size=batch_size, shuffle=False, num_workers=16)
+        data_loader = DataLoader(dataset.full_set, batch_size=batch_size, shuffle=False, num_workers=16)
 
         distortion = None
         counter = 0
@@ -292,7 +301,7 @@ def create_distorted_dataset(dataset, folder_out='auto', strength=0.1, batch_siz
         mean = 0
         std = 0
 
-        for x, y in train_loader:
+        for x, y in data_loader:
             if distortion is None:
                 distortion = DistortionModelConv(input_shape=x.shape[1:], lambd=strength)
 
@@ -307,8 +316,8 @@ def create_distorted_dataset(dataset, folder_out='auto', strength=0.1, batch_siz
                 torch.save(img, os.path.join(label_dir, f'{counter:04d}.pt'))
                 counter += 1
 
-        mean /= len(train_loader)
-        std /= len(train_loader)
+        mean /= len(data_loader)
+        std /= len(data_loader)
 
         print('Note: shouldn\'t be taking mean, std from full set')
         print(f'mean: {mean}')

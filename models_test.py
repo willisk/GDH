@@ -1,10 +1,8 @@
-from debug import debug
+#from debug import debug
 import torch.nn as nn
 import torch.optim
 
 import torch.nn.functional as F
-
-import segmentation_models_pytorch as smp
 
 
 def conv_block(in_channels, out_channels, stride=1):
@@ -20,7 +18,6 @@ def conv_block(in_channels, out_channels, stride=1):
 class ResBlock(nn.Module):
     def __init__(self, in_channels, out_channels, stride=None):
         super().__init__()
-        # reduce spatial dimension when channels increase
         stride = stride or (1 if in_channels >= out_channels else 2)
         self.block = conv_block(in_channels, out_channels, stride)
         if stride == 1 and in_channels == out_channels:
@@ -36,12 +33,9 @@ class ResBlock(nn.Module):
 
 
 class ResNet(nn.Module):
-    def __init__(self, in_channels, block_features, num_classes=10, headless=False):
+    def __init__(self, in_channels, block_features, num_classes=10, linear_head=True):
         super().__init__()
-
-        self.repr = f'ResNet{len(block_features) * 2 + 2}(in={in_channels}, out={num_classes})'
-
-        block_features = [block_features[0]] + block_features + ([num_classes] if headless else [])
+        block_features = [block_features[0]] + block_features
         self.expand = nn.Sequential(
             nn.Conv2d(in_channels, block_features[0], kernel_size=1, stride=1, bias=False),
             nn.BatchNorm2d(block_features[0]),
@@ -50,19 +44,22 @@ class ResNet(nn.Module):
             ResBlock(block_features[i], block_features[i + 1])
             for i in range(len(block_features) - 1)
         ])
-        self.linear_head = nn.Linear(block_features[-1], num_classes) if not headless else None
+        self.linear_head = linear_head
+
+        if linear_head:
+            self.head = nn.Linear(block_features[-1], num_classes)
+        else:
+            self.head = nn.Conv2d(block_features[-1], num_classes, kernel_size=3, padding=1)
 
     def forward(self, x):
         x = self.expand(x)
         for res_block in self.res_blocks:
             x = res_block(x)
-        if self.linear_head is not None:
+        if self.linear_head:
             x = F.avg_pool2d(x, x.shape[-1])    # completely reduce spatial dimension
-            x = self.linear_head(x.reshape(x.shape[0], -1))
+            x = x.reshape(x.shape[0], -1)
+        x = self.head(x)
         return x
-
-    def __repr__(self):
-        return self.repr
 
 
 def resnet18(in_channels, num_classes):
@@ -90,7 +87,7 @@ class Unet(nn.Module):
         self.ups = nn.ModuleList([
             conv_block(ins + outs, outs) for ins, outs in zip(up_features, up_features[1:])])
 
-        self.final_conv = nn.Conv2d(down_features[0], num_classes, kernel_size=1)
+        self.head = nn.Conv2d(down_features[0], num_classes, kernel_size=1)
 
         self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
 
@@ -109,43 +106,17 @@ class Unet(nn.Module):
             x = torch.cat([self.upsample(x), x_skip], dim=1)
             x = up(x)
 
-        x = self.final_conv(x)
+        x = self.head(x)
 
         return x
 
 
-class DistortionModelConv(nn.Module):
-    def __init__(self, input_shape, lambd=0.1):
-        super().__init__()
+if __name__ == '__main__':
+    net = Unet(3, [64, 128], 3)
+    # from utils import get_layers
+    # conv_layers = get_layers(net, nn.Conv2d)
+    from debug import debug
 
-        kernel_size = 3
-        nch = input_shape[0]
-
-        self.conv1 = nn.Conv2d(nch, nch, kernel_size,
-                               padding=1, padding_mode='reflect')
-        self.conv2 = nn.Conv2d(nch, nch, kernel_size,
-                               padding=1, padding_mode='reflect')
-        self.noise = torch.randn(input_shape).unsqueeze(0)
-
-        self.conv1.weight.data.normal_()
-        self.conv2.weight.data.normal_()
-        self.conv1.weight.data *= lambd
-        self.conv2.weight.data *= lambd
-        for f in range(nch):
-            self.conv1.weight.data[f][f][1][1] += 1
-            self.conv2.weight.data[f][f][1][1] += 1
-
-        self.conv1.bias.data.normal_()
-        self.conv2.bias.data.normal_()
-        self.conv1.bias.data *= lambd
-        self.conv2.bias.data *= lambd
-
-        self.noise.data *= lambd
-
-    @torch.no_grad()
-    def forward(self, inputs):
-        outputs = inputs
-        outputs = outputs + self.noise
-        outputs = self.conv1(outputs)
-        outputs = self.conv2(outputs)
-        return outputs
+    x = torch.randn((8, 3, 32, 32))
+    y = net(x)
+    debug(y)

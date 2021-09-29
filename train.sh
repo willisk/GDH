@@ -7,7 +7,7 @@ python train.py \
 --save_best \
 --lr 0.01 \
 --batch_size 64 \
---num_epochs 20 \
+--num_epochs 4 \
 --reset \
 
 # --resume_training

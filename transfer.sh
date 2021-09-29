@@ -1,33 +1,45 @@
-# python transfer.py \
-# --dataset_to CIFAR10Distorted \
-# --network Unet \
-# --model_from models/CIFAR10_resnet34.ckpt \
-# --cuda \
-# --save_best \
-# --lr 0.1 \
-# --f_stats 0.1 \
-# --size 2048 \
-# --batch_size 256 \
-# --num_epochs 10 \
-# --reset
+# for f1 in 1e-2 1e-3 1e-4 1e-5 1e-6 1e-7 0
+#     do
+#     for f2 in 1e-2 1e-3 1e-4 1e-5 1e-6 1e-7 0
+#         do
+#         python transfer.py \
+#         --dataset_to CIFAR10Distorted \
+#         --network Unet \
+#         --model_from models/CIFAR10_resnet34.ckpt \
+#         --cuda \
+#         --save_best \
+#         --lr 0.01 \
+#         --f_stats 1e-6 \
+#         --f_norm $f1 \
+#         --f_tv $f2 \
+#         --size 2048 \
+#         --batch_size 256 \
+#         --num_epochs 100 \
+#         --reset
+#     done
+# done
 
-for lr in 0.01 0.05 0.1
+for lr in 0.1
     do
-    # for f in 0.01 0.05 0.1 0.2
-    for f in 1e-7 5e-7 1e-6 5e-6 1e-5 5e-5 1e-4 
+    # for f in 0 1e-7 3e-7 7e-7 1e-6 3e-6
+    for f_st in 0 1e-7 1e-6 1e-5 1e-4
         do
         python transfer.py \
-        --dataset_to CIFAR10Distorted \
+        --dataset_to MNIST \
         --network Unet \
-        --model_from models/CIFAR10_resnet34.ckpt \
+        --model_from models/SVHN_resnet34.ckpt \
         --cuda \
-        --save_best \
         --lr $lr \
-        --f_stats $f \
+        --f_stats $f_st \
         --size 2048 \
         --batch_size 256 \
-        --num_epochs 50 \
+        --num_epochs 1000 \
         --reset
+
+        # --resume_training
+
+        # --dataset_to CIFAR10Distorted \
+        # --model_from models/CIFAR10_resnet34.ckpt \
     done
 done
 

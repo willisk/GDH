@@ -14,7 +14,7 @@ import argparse
 os.makedirs('models', exist_ok=True)
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--dataset', choices=['PBCBarcelona', 'CIFAR10', 'MNIST'], default='CIFAR10')
+parser.add_argument('--dataset', choices=['PBCBarcelona', 'CIFAR10', 'MNIST', 'SVHN'], default='CIFAR10')
 parser.add_argument('--network', choices=['resnet18', 'resnet34'], default='resnet18')
 parser.add_argument('--ckpt', default='auto', help='Model checkpoint for saving/loading.')
 parser.add_argument('--cuda', action='store_true')
@@ -31,7 +31,15 @@ device = 'cuda'  # if args.cuda else 'cpu'
 if args.ckpt == 'auto':
     args.ckpt = f'models/{args.dataset}_{args.network}.ckpt'
 
-print('\n'.join(f'{k}={v}' for k, v in vars(args).items()))
+plot_loc = args.ckpt.split('.')[0] + '.png'
+log_loc = args.ckpt.split('.')[0] + '.txt'
+
+
+def log(msg):
+    print(msg)
+    with open(log_loc, 'a') as f:
+        f.write(msg + '\n')
+
 
 dataset = get_dataset(args.dataset)
 train_loader = DataLoader(dataset.train_set, batch_size=args.batch_size, shuffle=True, num_workers=16)
@@ -44,8 +52,6 @@ num_classes = dataset.num_classes
 
 ##################################### Train Model #####################################
 
-plot_loc = args.ckpt.split('.')[0] + '.png'
-
 loss_fn = nn.CrossEntropyLoss()
 
 if os.path.exists(args.ckpt) and not args.reset:
@@ -55,7 +61,7 @@ if os.path.exists(args.ckpt) and not args.reset:
     init_epoch = state_dict['epoch']
     logs = state_dict['logs']
     best_acc = state_dict['acc']
-    print(f"Loading model {args.ckpt} ({init_epoch} epochs), valid acc {best_acc:.3f}")
+    log(f"Loading model {args.ckpt} ({init_epoch} epochs), valid acc {best_acc:.3f}")
 else:
     init_epoch = 0
     best_acc = 0
@@ -69,12 +75,18 @@ else:
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
+    if os.path.exists(log_loc):
+        os.remove(log_loc)
+
 valid_acc = test_accuracy(model, valid_loader, name='valid', device=device)
+
+
+log('\n' + '\n'.join(f'{k}={v}' for k, v in vars(args).items()) + '\n')
 
 if not os.path.exists(args.ckpt) or args.resume_training or args.reset:
 
-    print('Training ' f'{model},'
-          f'params:\t{num_params(model) / 1000:.2f} K')
+    log('Training ' f'{model},'
+        f'params:\t{num_params(model) / 1000:.2f} K')
 
     for epoch in range(init_epoch, init_epoch + args.num_epochs):
         model.train()
@@ -96,8 +108,10 @@ if not os.path.exists(args.ckpt) or args.resume_training or args.reset:
             optimizer.step()
 
             if step % len(train_loader) % 50 == 0:
-                print(f'[{epoch}/{init_epoch + args.num_epochs}:{step % len(train_loader):3d}] '
-                      + ', '.join([f'{k} {v:.3f}' for k, v in metrics.items()]))
+                # print(f'[{epoch}/{init_epoch + args.num_epochs}:{step % len(train_loader):3d}] '
+                #       + ', '.join([f'{k} {v:.3f}' for k, v in metrics.items()]))
+                log(f'[{epoch}/{init_epoch + args.num_epochs}:{step % len(train_loader):3d}] '
+                    + ', '.join([f'{k} {v:.3f}' for k, v in metrics.items()]))
 
         model.eval()
         valid_acc_old = valid_acc
@@ -109,13 +123,15 @@ if not os.path.exists(args.ckpt) or args.resume_training or args.reset:
             pretty_plot(logs, steps_per_epoch=len(train_loader), smoothing=50, save_loc=plot_loc)
             best_acc = valid_acc
 
-            print(f'Saving model to {args.ckpt}')
+            log(f'Saving model to {args.ckpt}')
             torch.save({'model': model, 'optimizer': optimizer, 'epoch': epoch + 1,
-                       'acc': best_acc, 'logs': logs}, args.ckpt)
+                       'acc': best_acc, 'logs': logs, 'input_shape': dataset.input_shape}, args.ckpt)
 
     if args.save_best:
         state_dict = torch.load(args.ckpt, map_location=device)
-        print(f"Loading best model {args.ckpt} ({state_dict['epoch']} epochs), valid acc {best_acc:.3f}")
+        log(f"Loading best model {args.ckpt} ({state_dict['epoch']} epochs), valid acc {best_acc:.3f}")
 
+# torch.save({'model': model, 'optimizer': optimizer, 'epoch': init_epoch,
+#             'acc': best_acc, 'logs': logs, 'input_shape': dataset.input_shape}, args.ckpt)
 
 # pretty_plot(logs, smoothing=50)
