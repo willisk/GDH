@@ -1,3 +1,9 @@
+import tarfile
+import gdown
+from copy import copy
+import zipfile
+import urllib
+import shutil
 import os
 import torch
 import numpy as np
@@ -17,12 +23,6 @@ import debug
 importlib.reload(debug)
 from debug import debug
 
-import shutil
-import urllib
-import zipfile
-import shutil
-from copy import copy
-
 
 IMAGE_FILE_TYPES = ['jpg', 'png', 'tif', 'tiff', 'pt']
 os.makedirs('data', exist_ok=True)
@@ -35,6 +35,14 @@ def get_dataset(dataset, train_augmentation=False):
         return PBCBarcelona(reduce=2)
     if dataset == 'PBCBarcelona_4x':
         return PBCBarcelona(reduce=4)
+
+    if dataset == 'Cytomorphology':
+        return Cytomorphology()
+    if dataset == 'Cytomorphology_2x':
+        return Cytomorphology(reduce=2)
+    if dataset == 'Cytomorphology_4x':
+        return Cytomorphology(reduce=4)
+
     if dataset == 'MNIST':
         return MNISTWrapper(train_augmentation)
     if dataset == 'SVHN':
@@ -43,6 +51,8 @@ def get_dataset(dataset, train_augmentation=False):
         return CIFAR10Wrapper(train_augmentation)
     elif dataset == 'CIFAR10Distorted':
         return CIFAR10Distorted(train_augmentation)
+
+    raise 'invalid dataset'
 
 
 class TorchDatasetWrapper():
@@ -67,15 +77,19 @@ class TorchDatasetWrapper():
         # no augmentation; needed for distorted dataset creation
         self.full_set = ConcatDataset([copy(train_set), copy(test_set)])
 
-        self.train_set, self.valid_set = random_split_frac(train_set, [0.8, 0.2], seed=0)
+        self.train_set, self.valid_set = random_split_frac(
+            train_set, [0.8, 0.2], seed=0)
         self.test_set = Subset(test_set)
 
-        self.train_set.transform = T.Compose([self.augment, self.transform]) if train_augmentation else self.transform
+        self.train_set.transform = T.Compose(
+            [self.augment, self.transform]) if train_augmentation else self.transform
         self.valid_set.transform = self.transform
         self.test_set.transform = self.transform
 
-        labels = train_set.labels if hasattr(train_set, 'labels') else train_set.targets
-        self.classes = list(set([label.item() if isinstance(label, torch.Tensor) else label for label in labels]))
+        labels = train_set.labels if hasattr(
+            train_set, 'labels') else train_set.targets
+        self.classes = list(set([label.item() if isinstance(
+            label, torch.Tensor) else label for label in labels]))
         self.input_shape = self.train_set[0][0].shape
         self.in_channels = self.input_shape[0]
         self.num_classes = len(self.classes)
@@ -83,8 +97,10 @@ class TorchDatasetWrapper():
 
 class SVHNWrapper(TorchDatasetWrapper):
     def __init__(self, train_augmentation=False):
-        train_set = SVHN(root='data', split='train', transform=T.ToTensor(), download=True)
-        test_set = SVHN(root='data', split='test', transform=T.ToTensor(), download=True)
+        train_set = SVHN(root='data', split='train',
+                         transform=T.ToTensor(), download=True)
+        test_set = SVHN(root='data', split='test',
+                        transform=T.ToTensor(), download=True)
         super().__init__(train_set, test_set,
                          mean=[0.4373, 0.4434, 0.4724], std=[0.1955, 0.1985, 0.1943],
                          train_augmentation=train_augmentation)
@@ -92,8 +108,10 @@ class SVHNWrapper(TorchDatasetWrapper):
 
 class CIFAR10Wrapper(TorchDatasetWrapper):
     def __init__(self, train_augmentation=False):
-        train_set = CIFAR10(root='data', train=True, transform=T.ToTensor(), download=True)
-        test_set = CIFAR10(root='data', train=False, transform=T.ToTensor(), download=True)
+        train_set = CIFAR10(root='data', train=True,
+                            transform=T.ToTensor(), download=True)
+        test_set = CIFAR10(root='data', train=False,
+                           transform=T.ToTensor(), download=True)
         super().__init__(train_set, test_set,
                          mean=[0.4914, 0.4822, 0.4465], std=[0.2464, 0.2428, 0.2608], train_augmentation=train_augmentation)
 
@@ -101,8 +119,10 @@ class CIFAR10Wrapper(TorchDatasetWrapper):
 class MNISTWrapper(TorchDatasetWrapper):
     def __init__(self, train_augmentation=False):
         train_set = MNIST(root='data', train=True, download=True)
-        train_set = MNIST(root='data', train=True, transform=T.ToTensor(), download=True)
-        test_set = MNIST(root='data', train=False, transform=T.ToTensor(), download=True)
+        train_set = MNIST(root='data', train=True,
+                          transform=T.ToTensor(), download=True)
+        test_set = MNIST(root='data', train=False,
+                         transform=T.ToTensor(), download=True)
 
         transform = nn.ZeroPad2d(2)  # ensure 32x32
 
@@ -143,6 +163,8 @@ class ImageFolderDataset(Dataset):
 
         self.transform = transform
         self.bits = bits
+
+        self.input_shape = self[0][0].shape
 
     def __repr__(self):
         rep = f"{type(self).__name__}: ImageFolderDataset[{len(self.images)}]"
@@ -216,20 +238,73 @@ class CIFAR10Distorted(ImageFolderDataset):  # , CIFAR10Wrapper):
 
     def __init__(self, train_augmentation=True):
 
-        img_dir = f'data/CIFAR10_distorted_1e-01'
+        strength = 1e-1
+
+        img_dir = f'data/CIFAR10_distorted_{strength:1.0e}'
 
         if not os.path.exists(img_dir):
-            create_distorted_dataset('CIFAR10', folder_out=img_dir, strength=0.1)
+            create_distorted_dataset(
+                'CIFAR10', folder_out=img_dir, strength=strength)
 
         super().__init__(img_dir, in_channels=3, folder_labels=True)
 
         self.full_set = self
-        self.train_set, self.valid_set, self.test_set = random_split_frac(self, [0.7, 0.15, 0.15], seed=0)
+        self.train_set, self.valid_set, self.test_set = random_split_frac(
+            self, [0.7, 0.15, 0.15], seed=0)
 
         self.train_set.transform = self.transform_augment if train_augmentation else self.transform
         self.train_set.transform = self.transform
         self.valid_set.transform = self.transform
         self.test_set.transform = self.transform
+
+
+# ig: MMZ, MYB, MYO, PMB, PMO
+# eosinophil: EOS
+# erythroblast: EBO
+# basophil: BAS
+# lymphocyte: LYT, LYA
+# monocyte: MON
+# neutrophil: NGB, NGS
+# platelet:
+
+# BAS Basophil: basophil
+# EBO Erythroblast: erythroblast
+# EOS Eosinophil: eosinophil
+# KSC Smudge cell
+# LYA Lymphocyte (atypical): lymphocyte
+# LYT Lymphocyte (typical): lymphocyte
+# MMZ Metamyelocyte: ig
+# MOB Monoblast:
+# MON Monocyte: monocyte
+# MYB Myelocyte: ig
+# MYO Myeloblast: ig
+# NGB Neutrophil (band): neutrophil
+# NGS Neutrophil (segmented): neutrophil
+# PMB Promyelocyte (bilobled): ig
+# PMO Promyelocyte: ig
+
+class Cytomorphology(ImageFolderDataset):
+
+    def __init__(self, transform=None, reduce=1):
+
+        img_dir = f'data/Cytomorphology'
+
+        if not os.path.exists(img_dir):
+            download_Cytomorphology_dataset()
+
+        transform = T.Compose([T.ToTensor(),
+                               # XXX: center cropping to get same dimensions as PBC dataset
+                               T.CenterCrop(360),
+                               T.Resize((360 // reduce, 360 // reduce)),
+                               T.Normalize(mean=[0.8092, 0.7088, 0.8340],
+                                           std=[0.1815, 0.2745, 0.1029])
+                               ])
+        super().__init__(img_dir=img_dir, in_channels=3,
+                         folder_labels=True, bits=8, transform=transform)
+
+        self.full_set = self
+        self.train_set, self.valid_set, self.test_set = random_split_frac(
+            self, [0.7, 0.15, 0.15], seed=0)
 
 
 class PBCBarcelona(ImageFolderDataset):
@@ -247,10 +322,12 @@ class PBCBarcelona(ImageFolderDataset):
                                T.Normalize(mean=[0.8734, 0.7481, 0.7215],
                                            std=[0.1593, 0.1864, 0.0801])
                                ])
-        super().__init__(img_dir=img_dir, in_channels=3, folder_labels=True, bits=8, transform=transform)
+        super().__init__(img_dir=img_dir, in_channels=3,
+                         folder_labels=True, bits=8, transform=transform)
 
         self.full_set = self
-        self.train_set, self.valid_set, self.test_set = random_split_frac(self, [0.7, 0.15, 0.15], seed=0)
+        self.train_set, self.valid_set, self.test_set = random_split_frac(
+            self, [0.7, 0.15, 0.15], seed=0)
 
 
 class Subset(Dataset):
@@ -285,15 +362,18 @@ def create_distorted_dataset(dataset, folder_out='auto', strength=0.1, batch_siz
         folder_out = f'data/{dataset}_distorted_{strength:1.0e}'
 
     if os.path.exists(folder_out) and not force:
-        print(f'SKIPPING. Folder "{folder_out}" already exists. Use --force to overwrite.')
+        print(
+            f'SKIPPING. Folder "{folder_out}" already exists. Use --force to overwrite.')
     else:
         if os.path.exists(folder_out):
             shutil.rmtree(folder_out)
-        print(f'Creating distorted version of {dataset} dataset in "{folder_out}". strength={strength}')
+        print(
+            f'Creating distorted version of {dataset} dataset in "{folder_out}". strength={strength}')
         os.makedirs(folder_out, exist_ok=True)
 
         dataset = get_dataset(dataset)
-        data_loader = DataLoader(dataset.full_set, batch_size=batch_size, shuffle=False, num_workers=16)
+        data_loader = DataLoader(
+            dataset.full_set, batch_size=batch_size, shuffle=False, num_workers=16)
 
         distortion = None
         counter = 0
@@ -303,7 +383,8 @@ def create_distorted_dataset(dataset, folder_out='auto', strength=0.1, batch_siz
 
         for x, y in data_loader:
             if distortion is None:
-                distortion = DistortionModelConv(input_shape=x.shape[1:], lambd=strength)
+                distortion = DistortionModelConv(
+                    input_shape=x.shape[1:], lambd=strength)
 
             x = distortion(x)
 
@@ -330,7 +411,8 @@ def random_split_frac(dataset, fracs, seed=None):
     lengths = [int(len(dataset) * frac) for frac in fracs]
     lengths[-1] = len(dataset) - sum(lengths[:-1])
 
-    delim_indices = [sum(lengths[:i]) for i, l in enumerate(lengths)] + [len(dataset)]
+    delim_indices = [sum(lengths[:i])
+                     for i, l in enumerate(lengths)] + [len(dataset)]
     rand_indices = list(torch.randperm(len(dataset)))
 
     return [Subset(dataset, rand_indices[delim_indices[i]:delim_indices[i + 1]])
@@ -344,7 +426,7 @@ def load_image(path):
     # if file_type == 'dng':
     #     return rawpy.imread(path).raw_image_visible
     if file_type == 'tiff' or file_type == 'tif':
-        return np.array(tiff.imread(path), dtype=np.float32)
+        return np.array(tiff.imread(path), dtype=np.float32)[..., :3]
     else:
         return np.array(Image.open(path), dtype=np.float32)
 
@@ -373,6 +455,27 @@ def extract_recursive(zip_file, delete_after=True):
     for _file in os.listdir(data_dir):
         if _file.endswith('.zip'):
             extract_recursive(os.path.join(data_dir, _file))
+
+
+# gdown https://drive.google.com/uc?id=1mJrlBl2vU_qCCKV0f33cc58wCFQcQhle
+
+
+def download_Cytomorphology_dataset():
+    # if os.path.exists('data/Cytomorphology'):
+    #     return
+    tar_file = 'data/Cytomorphology.tar.gz'
+    if not os.path.exists(tar_file):
+        print('Downloading Cytomorphology dataset..')
+        gdown.download(
+            'https://drive.google.com/uc?id=1c4qLxASvtSX8PKLeqnJviGVspS2G7vLM', tar_file)
+
+    if not os.path.exists('data/Cytomorphology'):
+        print('Extracting..')
+        with tarfile.open(tar_file, 'r:gz') as tar:
+            tar.extractall('data/Cytomotphology')
+    # os.rename('data/PBC_Barcelona_archive/PBC_dataset_normal_DIB/PBC_dataset_normal_DIB',
+    #           'data/PBC_Barcelona')
+    # shutil.rmtree('data/PBC_Barcelona_archive')
 
 
 def download_PBCBarcelona_dataset():
@@ -417,18 +520,21 @@ def download_PBCBarcelona_dataset():
 #     return idxs
 
 
-# if __name__ == '__main__':
+if __name__ == '__main__':
 
-#     from utils import calculate_mean_and_std
-#     import matplotlib.pyplot as plt
-#     dataset = get_dataset('PBCBarcelona_4x')
+    from utils import calculate_mean_and_std
+    import matplotlib.pyplot as plt
+    dataset = get_dataset('Cytomorphology_4x')
+    train_loader = DataLoader(dataset.train_set, batch_size=64)
 
-#     for img, label in dataset:
-#         plt.imshow(img.permute(1, 2, 0))
-#         plt.title(f'label {label}, class {dataset.classes[label]}')
-#         plt.show()
-#         break
-    # calculate_mean_and_std(train_loader)
+    # for i, (img, label) in enumerate(dataset):
+    #     debug(img)
+    #     plt.imshow(img.permute(1, 2, 0)[..., :3])
+    #     plt.title(f'label {label}, class {dataset.classes[label]}')
+    #     plt.show()
+    #     if i == 4:
+    #         break
+    calculate_mean_and_std(train_loader)
 
 # if __name__ == "__main__":
 #     import matplotlib.pyplot as plt

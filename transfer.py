@@ -5,12 +5,10 @@ import torch
 import torch.nn as nn
 
 from torch.utils.data import DataLoader
-from utils import num_params, test_accuracy, pretty_plot, get_bn_layers
+from utils import calculate_mean_and_std, num_params, test_accuracy, pretty_plot, get_bn_layers
 from datasets import Subset, get_dataset
 
-# from models import DistortionModelConv, resnet18, resnet34
-from models import DistortionModelConv
-from models_test import ResNet, Unet
+from models import ResNet, Unet
 import segmentation_models_pytorch as smp
 
 from debug import debug
@@ -23,7 +21,7 @@ os.makedirs('transfer', exist_ok=True)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset_to', choices=['PBCBarcelona', 'CIFAR10', 'CIFAR10Distorted', 'MNIST'], default='CIFAR10')
-parser.add_argument('--network', choices=['Unet', 'UnetPlusPlus'], default='Unet')
+parser.add_argument('--network', choices=['Unet', 'Unet_smp', 'UnetPlusPlus'], default='Unet')
 parser.add_argument('--model_from', default='models/model.ckpt', help='Model checkpoint for saving/loading.')
 parser.add_argument('--ckpt', default='auto', help='Model checkpoint for saving/loading.')
 
@@ -82,6 +80,10 @@ log(
 
 loss_fn = nn.CrossEntropyLoss()
 
+# Transfer model input / output channels
+in_channels = dataset_to.in_channels
+out_channels = classifier_input_shape[0]
+
 if os.path.exists(model_ckpt) and not args.reset:
     state_dict = torch.load(model_ckpt, map_location=device)
     transfer_model = state_dict['model']
@@ -95,28 +97,25 @@ else:
     best_acc = 0
     logs = defaultdict(list)
 
-    # transfer_model = ResNet(3, [64] * 2, 3, linear_head=False)
-    # transfer_model = Unet(3, [64, 128], 3)
-
-    # transfer_model = Unet(dataset_to.in_channels, [64, 128], classifier_input_shape[0])
-    # print(transfer_model)
-
     if args.network == 'Unet':
+        transfer_model = Unet(in_channels, [64, 128, 256], out_channels)
+    if args.network == 'Unet_smp':
         transfer_model = smp.UnetPlusPlus(
             encoder_depth=3,
-            in_channels=dataset_to.in_channels,
+            in_channels=in_channels,
             decoder_channels=(256, 128, 64),
-            classes=classifier_input_shape[0],
+            classes=out_channels,
             activation=None,
         )
-    # if args.network == 'UnetPlusPlus':
-    #     transfer_model = smp.UnetPlusPlus(
-    #         encoder_depth=3,
-    #         in_channels=3,
-    #         decoder_channels=(256, 128, 64),
-    #         classes=3,
-    #         activation=None,
-    #     )
+    if args.network == 'UnetPlusPlus':
+        transfer_model = smp.UnetPlusPlus(
+            encoder_depth=3,
+            in_channels=3,
+            decoder_channels=(256, 128, 64),
+            classes=3,
+            activation=None,
+        )
+
     transfer_model.to(device)
 
     optimizer = torch.optim.Adam(transfer_model.parameters(), lr=args.lr)
@@ -155,6 +154,7 @@ if dataset_to.in_channels == 1 and classifier_input_shape[0] == 3:
 elif dataset_to.in_channels == 3 and classifier_input_shape[0] == 1:
     transform = rgb_to_grayscale
 
+# calculate_mean_and_std()  # XXX: should check whether images are normalized after distorting, could be a source of error
 test_accuracy(classifier, valid_loader, transform=transform, name='valid no transfer', device=device)
 valid_acc = test_accuracy(full_model, valid_loader, name='valid', device=device)
 

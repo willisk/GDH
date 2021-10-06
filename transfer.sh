@@ -33,7 +33,7 @@ for lr in 0.1
         --f_stats $f_st \
         --size 2048 \
         --batch_size 256 \
-        --num_epochs 1000 \
+        --num_epochs 500 \
         --reset
 
         # --resume_training
