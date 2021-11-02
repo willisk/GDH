@@ -1,3 +1,4 @@
+import sys
 from collections import defaultdict
 import os
 import torch
@@ -32,7 +33,13 @@ parser.add_argument('--resume_training', action='store_true')
 parser.add_argument('--reset', action='store_true')
 parser.add_argument('--save_best', action='store_true',
                     help='Save only the best models (measured in valid accuracy).')
-args = parser.parse_args()
+
+if 'ipykernel' in sys.argv[0]:
+    args = parser.parse_args([
+        '--dataset', 'CIFAR10'
+    ])
+else:
+    args = parser.parse_args()
 
 device = 'cuda'  # if args.cuda else 'cpu'
 
@@ -139,14 +146,14 @@ if not os.path.exists(args.ckpt) or args.resume_training or args.reset:
 
             log(f'Saving model to {args.ckpt}')
             torch.save({'model': model, 'optimizer': optimizer, 'epoch': epoch + 1,
-                       'acc': best_acc, 'logs': logs, 'input_shape': dataset.input_shape}, args.ckpt)
+                       'acc': best_acc, 'logs': logs, 'input_shape': dataset.input_shape, 'classes': dataset.classes}, args.ckpt)
 
-    if args.save_best:
-        state_dict = torch.load(args.ckpt, map_location=device)
-        log(
-            f"Loading best model {args.ckpt} ({state_dict['epoch']} epochs), valid acc {best_acc:.3f}")
+    # if args.save_best:
+    #     state_dict = torch.load(args.ckpt, map_location=device)
+    #     log(
+    #         f"Loading best model {args.ckpt} ({state_dict['epoch']} epochs), valid acc {best_acc:.3f}")
 
 # torch.save({'model': model, 'optimizer': optimizer, 'epoch': init_epoch,
-#             'acc': best_acc, 'logs': logs, 'input_shape': dataset.input_shape}, args.ckpt)
+#             'acc': best_acc, 'logs': logs, 'input_shape': dataset.input_shape, 'classes': dataset.classes}, args.ckpt)
 
 # pretty_plot(logs, smoothing=50)

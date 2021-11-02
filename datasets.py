@@ -1,3 +1,5 @@
+import torch.nn.functional as F
+from debug import debug
 import tarfile
 import gdown
 from copy import copy
@@ -21,7 +23,6 @@ import tifffile as tiff
 import importlib
 import debug
 importlib.reload(debug)
-from debug import debug
 
 
 IMAGE_FILE_TYPES = ['jpg', 'png', 'tif', 'tiff', 'pt']
@@ -149,16 +150,16 @@ class ImageFolderDataset(Dataset):
         self.img_dir = img_dir
         self.images = list_images_in_dir(img_dir, recursive=True)
 
-        self.labels = labels
-
         if labels is None:
             assert folder_labels, 'No labels provided and not using folder labels.'
-            self.labels = [img.split('/')[-2] for img in self.images]
+            self.class_labels = [img.split('/')[-2] for img in self.images]
+        else:
+            self.class_labels = labels
 
-        assert len(self.images) == len(self.labels)
+        assert len(self.images) == len(self.class_labels)
 
-        self.classes = list(set(self.labels))
-        self.labels = [self.classes.index(label) for label in self.labels]
+        self.classes = list(set(self.class_labels))
+        self.labels = [self.classes.index(clss) for clss in self.class_labels]
         self.num_classes = len(self.classes)
 
         self.transform = transform
@@ -263,7 +264,7 @@ class CIFAR10Distorted(ImageFolderDataset):  # , CIFAR10Wrapper):
 # erythroblast: EBO
 # basophil: BAS
 # lymphocyte: LYT, LYA
-# monocyte: MON
+# monocyte: MON, MOB
 # neutrophil: NGB, NGS
 # platelet:
 
@@ -274,7 +275,7 @@ class CIFAR10Distorted(ImageFolderDataset):  # , CIFAR10Wrapper):
 # LYA Lymphocyte (atypical): lymphocyte
 # LYT Lymphocyte (typical): lymphocyte
 # MMZ Metamyelocyte: ig
-# MOB Monoblast:
+# MOB Monoblast: monocyte
 # MON Monocyte: monocyte
 # MYB Myelocyte: ig
 # MYO Myeloblast: ig
@@ -282,6 +283,9 @@ class CIFAR10Distorted(ImageFolderDataset):  # , CIFAR10Wrapper):
 # NGS Neutrophil (segmented): neutrophil
 # PMB Promyelocyte (bilobled): ig
 # PMO Promyelocyte: ig
+
+# https://wiki.cancerimagingarchive.net/pages/viewpage.action?pageId=61080958
+
 
 class Cytomorphology(ImageFolderDataset):
 
@@ -307,6 +311,7 @@ class Cytomorphology(ImageFolderDataset):
             self, [0.7, 0.15, 0.15], seed=0)
 
 
+# https://data.mendeley.com/datasets/snkd93bnjr/1
 class PBCBarcelona(ImageFolderDataset):
 
     def __init__(self, transform=None, reduce=1):
@@ -492,49 +497,131 @@ def download_PBCBarcelona_dataset():
     shutil.rmtree('data/PBC_Barcelona_archive')
 
 
-# def k_fold(dataset, n_splits: int, seed: int, train_size: float):
-#     """Split dataset in subsets for cross-validation
+def identity_map(x):
+    return x
 
-#        Args:
-#             dataset (class): dataset to split
-#             n_split (int): Number of re-shuffling & splitting iterations.
-#             seed (int): seed for k_fold splitting
-#             train_size (float): should be between 0.0 and 1.0 and represent the proportion of the dataset to include in the train split.
-#        Returns:
-#            idxs (list): indeces for splitting the dataset. The list contain n_split pair of train/test indeces.
-#     """
-#     if hasattr(dataset, 'labels'):
-#         x = dataset.images
-#         y = dataset.labels
-#     elif hasattr(dataset, 'masks'):
-#         x = dataset.images
-#         y = dataset.masks
 
-#     sss = StratifiedShuffleSplit(n_splits=n_splits, train_size=train_size, random_state=seed)
+equivalence_classes = {
+    'BAS': 'basophil',
+    'EBO': 'erythroblast',
+    'EOS': 'eosinophil',
+    'KSC': None,
+    'LYA': 'lymphocyte',
+    'LYT': 'lymphocyte',
+    'MMZ': 'ig',
+    'MOB': 'monocyte',
+    'MON': 'monocyte',
+    'MYB': 'ig',
+    'MYO': 'ig',
+    'NGB': 'neutrophil',
+    'NGS': 'neutrophil',
+    'PMB': 'ig',
+    'PMO': 'ig',
+}
 
-#     idxs = []
 
-#     for idxs_train, idxs_test in sss.split(x, y):
-#         idxs.append((idxs_train.tolist(), idxs_test.tolist()))
+def get_transfer_mapping_labels(from_classes, to_classes):
+    # assume from_classes < to_classes: unique mapping exists
+    transfer_map = {label: {from_classes.index(equivalence_classes[clss_to])}
+                    if clss_to in equivalence_classes and equivalence_classes[clss_to] is not None else set()
+                    for label, clss_to in enumerate(to_classes)}
 
-#     return idxs
+    # if len({*transfer_map.values()}) > 1:
+    if len(set().union(*transfer_map.values())) > 1:
+        return transfer_map, True
+
+    # from_classes > to_classes
+    transfer_map = {label: {i for i, clss_from in enumerate(from_classes)
+                            if equivalence_classes[clss_from] == clss_to}
+                    for label, clss_to in enumerate(to_classes)}
+
+    assert len(set().union(*transfer_map.values())
+               ) > 1, 'error in equivalence classes'
+
+    return transfer_map, False
+
+
+# helper only
+def get_transfer_mapping_classes(from_classes, to_classes):
+
+    transfer_map, _ = get_transfer_mapping_labels(from_classes, to_classes)
+
+    transfer_map_classes = {to_classes[k]: {from_classes[v] for v in values}
+                            for k, values in transfer_map.items()}
+    return transfer_map_classes
+
+
+class CrossEntropyTransfer():
+    def __init__(self, from_classes, to_classes):
+        # mask true labels from 'to class' that don't have corresponding pre-image in 'from class'
+        # since the model has never seen this / does not have the expressivity (index) to even learn this
+
+        # if from_classes < (subset) to_classes, this is easy: transform to_classes -> from_classes
+        # if from_classes > to_classes, equally boost corresponding from_classes with averaged weight
+
+        self.transfer_map, self.transform_labels = get_transfer_mapping_labels(
+            from_classes, to_classes)
+
+    def __call__(self, x, y):
+        labels = y.tolist()
+        mask = [len(self.transfer_map[label]) > 0 for label in labels]
+        labels = [l for l, m in zip(labels, mask) if m]
+        x = x[mask]
+
+        if not self.transform_labels:  # from_classes < to_classes; simply map labels
+            y = torch.LongTensor([list(self.transfer_map[l])[0]
+                                  for l, m in zip(labels, mask) if m]).to(x.device)
+            loss = -1 * F.log_softmax(x, 1).gather(1, y.unsqueeze(1))
+        else:   # from_classes > to_classes
+            y = torch.zeros_like(x)
+
+            for i in range(len(labels)):
+                targets = list(self.transfer_map[labels[i]])
+                y[i, targets] = 1 / len(targets)
+
+            loss = -1 * F.log_softmax(x, 1) * y
+        return loss.mean()
 
 
 if __name__ == '__main__':
 
-    from utils import calculate_mean_and_std
-    import matplotlib.pyplot as plt
-    dataset = get_dataset('Cytomorphology_4x')
-    train_loader = DataLoader(dataset.train_set, batch_size=64)
+    dataset_from = get_dataset('Cytomorphology_4x')
+    dataset_to = get_dataset('PBCBarcelona_4x')
 
-    # for i, (img, label) in enumerate(dataset):
-    #     debug(img)
-    #     plt.imshow(img.permute(1, 2, 0)[..., :3])
-    #     plt.title(f'label {label}, class {dataset.classes[label]}')
-    #     plt.show()
-    #     if i == 4:
-    #         break
-    calculate_mean_and_std(train_loader)
+    from_classes = dataset_from.classes
+    to_classes = dataset_to.classes
+
+    N = 5
+    torch.manual_seed(1)
+
+    # from_classes, to_classes = to_classes, from_classes
+    loss_fn = CrossEntropyTransfer(from_classes, to_classes)
+    transfer_map = loss_fn.transfer_map
+    # print(loss_fn.transfer_map)
+    # print({to_classes[k]: {from_classes[v] for v in values}
+    #       for k, values in loss_fn.transfer_map.items()})
+    # x = torch.randn((N, len(from_classes)))
+    # y = torch.randint(0, len(to_classes), (N, ))
+    # print(loss_fn(x, y))
+
+    N = 16
+    x = torch.randint(0, len(from_classes), (N, ))
+    y = torch.randint(0, len(to_classes), (N, ))
+    transfer_map, _ = get_transfer_mapping_labels(from_classes, to_classes)
+    # print(f'Transfer map: {transfer_map}')
+    print(
+        f'Transfer map: {get_transfer_mapping_classes(from_classes, to_classes)}')
+    for true_label, pred in zip(y.tolist(), x.tolist()):
+        print('(prediction)', from_classes[pred], 'in',
+              f'{ {from_classes[v] for v in transfer_map[true_label]} } <= {to_classes[true_label]}', '(true_label): ',  pred in transfer_map[true_label])
+
+    correct = [pred in transfer_map[true_label]
+               for true_label, pred in zip(y.tolist(), x.tolist())
+               if len(transfer_map[true_label]) > 0]
+    print(sum(correct) / len(correct))
+
+    from utils import accuracy
+    print(accuracy(x, y, loss_fn.transfer_map))
 
 # if __name__ == "__main__":
 #     import matplotlib.pyplot as plt

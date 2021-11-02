@@ -3,14 +3,33 @@ import matplotlib.pyplot as plt
 import torch
 from torch import nn
 import torch.nn.functional as F
+from datasets import equivalence_classes
 
 
 def num_params(model):
     return sum([p.numel() for p in model.parameters() if p.requires_grad])
 
 
+def labels_correct(y_pred, y, transfer_map=None):
+    if transfer_map is None:
+        return (y_pred == y).tolist()
+    y_mapped = [transfer_map[yi] for yi in y.tolist()]
+    return [pred in mapped
+            for mapped, pred in zip(y_mapped, y_pred.tolist())
+            if len(mapped) > 0]
+
+
+def accuracy(y_pred, y, transfer_map=None):
+    if transfer_map is None:
+        return (y_pred == y).float().mean().item()
+    correct = [pred in transfer_map[true_label]
+               for true_label, pred in zip(y.tolist(), y_pred.tolist())
+               if len(transfer_map[true_label]) > 0]
+    return sum(correct) / len(correct) if len(correct) > 0 else 0
+
+
 @torch.no_grad()
-def test_accuracy(model, data_loader, transform=None, name='test', device='cuda'):
+def test_accuracy(model, data_loader, transform=None, transfer_map=None, name=None, device='cuda'):
     num_total = 0
     num_correct = 0
     model.eval()
@@ -20,9 +39,11 @@ def test_accuracy(model, data_loader, transform=None, name='test', device='cuda'
         if transform is not None:
             x = transform(x)
         out = model(x)
-        num_correct += (out.argmax(dim=1) == y).sum().item()
-        num_total += len(x)
-    acc = num_correct / num_total
+        predictions = out.argmax(dim=1)
+        correct = labels_correct(predictions, y, transfer_map=transfer_map)
+        num_correct += sum(correct)
+        num_total += len(correct)
+    acc = num_correct / num_total if num_total > 0 else 0   # this shouldn't happen
     if name is not None:
         print(f'{name} accuracy: {acc:.3f}')
     return acc
@@ -45,7 +66,8 @@ def transpose_dict(d):
 def pretty_plot(logs, steps_per_epoch=1, smoothing=0, save_loc=None):
     vals = torch.Tensor(list(logs.values()))
     if smoothing and len(vals) > smoothing:
-        vals = F.conv1d(vals.reshape((len(vals), 1, -1)), torch.ones((1, 1, smoothing)) / smoothing).squeeze()
+        vals = F.conv1d(vals.reshape((len(vals), 1, -1)),
+                        torch.ones((1, 1, smoothing)) / smoothing).squeeze()
     y_max = max(vals.mean(dim=1) + vals.std(dim=1) * 1.5)
     x = torch.arange(vals.shape[1]) / steps_per_epoch
 
