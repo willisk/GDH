@@ -22,11 +22,13 @@ os.makedirs('transfer', exist_ok=True)
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--dataset_to', choices=[
-                    'PBCBarcelona', 'PBCBarcelona_2x', 'PBCBarcelona_4x',
-                    'Cytomorphology', 'Cytomorphology_2x', 'Cytomorphology_4x',
-                    'CIFAR10', 'MNIST', 'SVHN'
-                    ], default='CIFAR10')
+parser.add_argument('--dataset_to',
+                    # choices=[
+                    #     'PBCBarcelona', 'PBCBarcelona_2x', 'PBCBarcelona_4x',
+                    #     'Cytomorphology', 'Cytomorphology_2x', 'Cytomorphology_4x',
+                    #     'CIFAR10', 'MNIST', 'SVHN'
+                    # ],
+                    default='CIFAR10')
 parser.add_argument(
     '--network', choices=['Unet', 'Unet_smp', 'UnetPlusPlus'], default='Unet')
 parser.add_argument('--model_from', default='models/model.ckpt',
@@ -248,7 +250,7 @@ if not os.path.exists(model_ckpt) or args.resume_training or args.reset:
 
             loss = loss_bn + loss_reg
 
-            y_pred = logits.argmax(dim=1) == y
+            y_pred = logits.argmax(dim=1)
             acc = accuracy(y_pred, y, transfer_map=transfer_map)
 
             # acc = sum(correct) / len(correct)
@@ -280,12 +282,12 @@ if not os.path.exists(model_ckpt) or args.resume_training or args.reset:
         log(f'[{epoch + 1}/{init_epoch + args.num_epochs}] ' +
             ', '.join([f'{k} {v:.3f}' for k, v in metrics.items()]))
 
-        view_batch = next(iter(valid_loader))[0][:32].to(device)
-        save_image(make_grid(view_batch.cpu(), normalize=True),
-                   f'{save_loc}/sample_input.png')
-        samples = transfer_model(view_batch)
-
         if (epoch + 1) % 10 == 0:
+            view_batch = next(iter(valid_loader))[0][:32].to(device)
+            save_image(make_grid(view_batch.cpu(), normalize=True),
+                       f'{save_loc}/sample_input.png')
+            samples = transfer_model(view_batch)
+
             save_image(make_grid(samples.cpu(), normalize=True),
                        f'{save_loc}/sample_{epoch + 1:02d}.png')
 

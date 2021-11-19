@@ -28,6 +28,24 @@ importlib.reload(debug)
 IMAGE_FILE_TYPES = ['jpg', 'png', 'tif', 'tiff', 'pt']
 os.makedirs('data', exist_ok=True)
 
+equivalence_classes = {
+    'BAS': 'basophil',
+    'EBO': 'erythroblast',
+    'EOS': 'eosinophil',
+    'KSC': None,
+    'LYA': 'lymphocyte',
+    'LYT': 'lymphocyte',
+    'MMZ': 'ig',
+    'MOB': 'monocyte',
+    'MON': 'monocyte',
+    'MYB': 'ig',
+    'MYO': 'ig',
+    'NGB': 'neutrophil',
+    'NGS': 'neutrophil',
+    'PMB': 'ig',
+    'PMO': 'ig',
+}
+
 
 def get_dataset(dataset, train_augmentation=False):
     if dataset == 'PBCBarcelona':
@@ -43,6 +61,9 @@ def get_dataset(dataset, train_augmentation=False):
         return Cytomorphology(reduce=2)
     if dataset == 'Cytomorphology_4x':
         return Cytomorphology(reduce=4)
+
+    if dataset == 'Cytomorphology_PBC':
+        return CytomorphologyPBC(reduce=4)
 
     if dataset == 'MNIST':
         return MNISTWrapper(train_augmentation)
@@ -259,34 +280,7 @@ class CIFAR10Distorted(ImageFolderDataset):  # , CIFAR10Wrapper):
         self.test_set.transform = self.transform
 
 
-# ig: MMZ, MYB, MYO, PMB, PMO
-# eosinophil: EOS
-# erythroblast: EBO
-# basophil: BAS
-# lymphocyte: LYT, LYA
-# monocyte: MON, MOB
-# neutrophil: NGB, NGS
-# platelet:
-
-# BAS Basophil: basophil
-# EBO Erythroblast: erythroblast
-# EOS Eosinophil: eosinophil
-# KSC Smudge cell
-# LYA Lymphocyte (atypical): lymphocyte
-# LYT Lymphocyte (typical): lymphocyte
-# MMZ Metamyelocyte: ig
-# MOB Monoblast: monocyte
-# MON Monocyte: monocyte
-# MYB Myelocyte: ig
-# MYO Myeloblast: ig
-# NGB Neutrophil (band): neutrophil
-# NGS Neutrophil (segmented): neutrophil
-# PMB Promyelocyte (bilobled): ig
-# PMO Promyelocyte: ig
-
 # https://wiki.cancerimagingarchive.net/pages/viewpage.action?pageId=61080958
-
-
 class Cytomorphology(ImageFolderDataset):
 
     def __init__(self, transform=None, reduce=1):
@@ -297,7 +291,6 @@ class Cytomorphology(ImageFolderDataset):
             download_Cytomorphology_dataset()
 
         transform = T.Compose([T.ToTensor(),
-                               # XXX: center cropping to get same dimensions as PBC dataset
                                T.CenterCrop(360),
                                T.Resize((360 // reduce, 360 // reduce)),
                                T.Normalize(mean=[0.8092, 0.7088, 0.8340],
@@ -309,6 +302,18 @@ class Cytomorphology(ImageFolderDataset):
         self.full_set = self
         self.train_set, self.valid_set, self.test_set = random_split_frac(
             self, [0.7, 0.15, 0.15], seed=0)
+
+
+class CytomorphologyPBC(Cytomorphology):
+    def __init__(self, transform=None, reduce=1):
+        super().__init__(transform, reduce)
+
+        self.class_labels = [equivalence_classes[clss] or 'UNKNOWN'
+                             for clss in self.class_labels]
+
+        self.classes = list(set(self.class_labels))
+        self.labels = [self.classes.index(clss) for clss in self.class_labels]
+        self.num_classes = len(self.classes)
 
 
 # https://data.mendeley.com/datasets/snkd93bnjr/1
@@ -501,26 +506,10 @@ def identity_map(x):
     return x
 
 
-equivalence_classes = {
-    'BAS': 'basophil',
-    'EBO': 'erythroblast',
-    'EOS': 'eosinophil',
-    'KSC': None,
-    'LYA': 'lymphocyte',
-    'LYT': 'lymphocyte',
-    'MMZ': 'ig',
-    'MOB': 'monocyte',
-    'MON': 'monocyte',
-    'MYB': 'ig',
-    'MYO': 'ig',
-    'NGB': 'neutrophil',
-    'NGS': 'neutrophil',
-    'PMB': 'ig',
-    'PMO': 'ig',
-}
-
-
 def get_transfer_mapping_labels(from_classes, to_classes):
+    if (set(from_classes) == set(to_classes)):   # equal sets, return identity mapping
+        return {label: label for label, clss_to in enumerate(to_classes)}
+
     # assume from_classes < to_classes: unique mapping exists
     transfer_map = {label: {from_classes.index(equivalence_classes[clss_to])}
                     if clss_to in equivalence_classes and equivalence_classes[clss_to] is not None else set()
@@ -592,7 +581,7 @@ if __name__ == '__main__':
     to_classes = dataset_to.classes
 
     N = 5
-    torch.manual_seed(1)
+    torch.manual_seed(0)
 
     # from_classes, to_classes = to_classes, from_classes
     loss_fn = CrossEntropyTransfer(from_classes, to_classes)
@@ -618,6 +607,9 @@ if __name__ == '__main__':
     correct = [pred in transfer_map[true_label]
                for true_label, pred in zip(y.tolist(), x.tolist())
                if len(transfer_map[true_label]) > 0]
+
+    print(f'{sum(correct)} / {len(correct)}')
+
     print(sum(correct) / len(correct))
 
     from utils import accuracy

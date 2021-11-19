@@ -15,11 +15,12 @@ import argparse
 os.makedirs('models', exist_ok=True)
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--dataset', choices=[
-                    'PBCBarcelona', 'PBCBarcelona_2x', 'PBCBarcelona_4x',
-                    'Cytomorphology', 'Cytomorphology_2x', 'Cytomorphology_4x',
-                    'CIFAR10', 'MNIST', 'SVHN'
-                    ], default='CIFAR10')
+parser.add_argument('--dataset',
+                    # choices=[
+                    # 'PBCBarcelona', 'PBCBarcelona_2x', 'PBCBarcelona_4x',
+                    # 'Cytomorphology', 'Cytomorphology_2x', 'Cytomorphology_4x',
+                    # 'CIFAR10', 'MNIST', 'SVHN'],
+                    default='CIFAR10')
 parser.add_argument(
     '--network', choices=['resnet18', 'resnet34'], default='resnet18')
 parser.add_argument('--ckpt', default='auto',

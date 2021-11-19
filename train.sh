@@ -3,7 +3,7 @@
 
 python train.py \
 --network resnet34 \
---dataset PBCBarcelona_4x \
+--dataset Cytomorphology_PBC \
 --cuda \
 --save_best \
 --lr 0.01 \
