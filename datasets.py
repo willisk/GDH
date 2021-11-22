@@ -482,7 +482,7 @@ def download_Cytomorphology_dataset():
     if not os.path.exists('data/Cytomorphology'):
         print('Extracting..')
         with tarfile.open(tar_file, 'r:gz') as tar:
-            tar.extractall('data/Cytomotphology')
+            tar.extractall('data/Cytomorphology')
     # os.rename('data/PBC_Barcelona_archive/PBC_dataset_normal_DIB/PBC_dataset_normal_DIB',
     #           'data/PBC_Barcelona')
     # shutil.rmtree('data/PBC_Barcelona_archive')
