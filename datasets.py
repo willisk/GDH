@@ -447,7 +447,8 @@ def list_images_in_dir(path, recursive=False):
               if image.split('.')[-1].lower() in IMAGE_FILE_TYPES
               and image.split('/')[-1][0] != '.']
     if recursive:
-        folders = [folder for folder in files if os.path.isdir(folder)]
+        folders = [folder for folder in files
+                   if os.path.isdir(folder) and not folder.split('/')[-1].startswith('.')]
         return images + sum([list_images_in_dir(folder, recursive=recursive) for folder in folders], [])
     return images
 
@@ -573,47 +574,45 @@ class CrossEntropyTransfer():
 
 
 if __name__ == '__main__':
+    dataset = get_dataset('Cytomorphology_PBC')
 
-    dataset_from = get_dataset('Cytomorphology_4x')
-    dataset_to = get_dataset('PBCBarcelona_4x')
 
-    from_classes = dataset_from.classes
-    to_classes = dataset_to.classes
+# if __name__ == '__main__':
 
-    N = 5
-    torch.manual_seed(0)
+#     dataset_from = get_dataset('Cytomorphology_4x')
+#     dataset_to = get_dataset('PBCBarcelona_4x')
 
-    # from_classes, to_classes = to_classes, from_classes
-    loss_fn = CrossEntropyTransfer(from_classes, to_classes)
-    transfer_map = loss_fn.transfer_map
-    # print(loss_fn.transfer_map)
-    # print({to_classes[k]: {from_classes[v] for v in values}
-    #       for k, values in loss_fn.transfer_map.items()})
-    # x = torch.randn((N, len(from_classes)))
-    # y = torch.randint(0, len(to_classes), (N, ))
-    # print(loss_fn(x, y))
+#     from_classes = dataset_from.classes
+#     to_classes = dataset_to.classes
 
-    N = 16
-    x = torch.randint(0, len(from_classes), (N, ))
-    y = torch.randint(0, len(to_classes), (N, ))
-    transfer_map, _ = get_transfer_mapping_labels(from_classes, to_classes)
-    # print(f'Transfer map: {transfer_map}')
-    print(
-        f'Transfer map: {get_transfer_mapping_classes(from_classes, to_classes)}')
-    for true_label, pred in zip(y.tolist(), x.tolist()):
-        print('(prediction)', from_classes[pred], 'in',
-              f'{ {from_classes[v] for v in transfer_map[true_label]} } <= {to_classes[true_label]}', '(true_label): ',  pred in transfer_map[true_label])
+#     N = 5
+#     torch.manual_seed(0)
 
-    correct = [pred in transfer_map[true_label]
-               for true_label, pred in zip(y.tolist(), x.tolist())
-               if len(transfer_map[true_label]) > 0]
+#     # from_classes, to_classes = to_classes, from_classes
+#     loss_fn = CrossEntropyTransfer(from_classes, to_classes)
+#     transfer_map = loss_fn.transfer_map
 
-    print(f'{sum(correct)} / {len(correct)}')
+#     N = 16
+#     x = torch.randint(0, len(from_classes), (N, ))
+#     y = torch.randint(0, len(to_classes), (N, ))
+#     transfer_map, _ = get_transfer_mapping_labels(from_classes, to_classes)
+#     # print(f'Transfer map: {transfer_map}')
+#     print(
+#         f'Transfer map: {get_transfer_mapping_classes(from_classes, to_classes)}')
+#     for true_label, pred in zip(y.tolist(), x.tolist()):
+#         print('(prediction)', from_classes[pred], 'in',
+#               f'{ {from_classes[v] for v in transfer_map[true_label]} } <= {to_classes[true_label]}', '(true_label): ',  pred in transfer_map[true_label])
 
-    print(sum(correct) / len(correct))
+#     correct = [pred in transfer_map[true_label]
+#                for true_label, pred in zip(y.tolist(), x.tolist())
+#                if len(transfer_map[true_label]) > 0]
 
-    from utils import accuracy
-    print(accuracy(x, y, loss_fn.transfer_map))
+#     print(f'{sum(correct)} / {len(correct)}')
+
+#     print(sum(correct) / len(correct))
+
+#     from utils import accuracy
+#     print(accuracy(x, y, loss_fn.transfer_map))
 
 # if __name__ == "__main__":
 #     import matplotlib.pyplot as plt
