@@ -4,6 +4,35 @@ import torch.optim
 
 import torch.nn.functional as F
 
+import segmentation_models_pytorch as smp
+
+
+def get_model(model, in_channels, out_channels):
+    if model == 'Unet':
+        return Unet(in_channels, [64, 128], out_channels, block_depth=2, bottleneck_depth=2)
+    if model == 'Unet_smp':
+        return smp.Unet(
+            encoder_depth=3,
+            in_channels=in_channels,
+            decoder_channels=(256, 128, 64),
+            classes=out_channels,
+            activation=None,
+        )
+    if model == 'UnetPlusPlus':
+        return smp.UnetPlusPlus(
+            encoder_depth=3,
+            in_channels=in_channels,
+            decoder_channels=(256, 128, 64),
+            classes=out_channels,
+            activation=None,
+        )
+    if model == 'BaselineColorMatrix':
+        return TransferBaselineColorMatrix(in_channels, out_channels)
+    if model == 'BaselineConv':
+        return TransferBaselineConv(in_channels, out_channels)
+
+    raise Exception('invalid model')
+
 
 def conv_block(in_channels, out_channels, stride=1):
     return nn.Sequential(
@@ -176,14 +205,64 @@ class DistortionModelConv(nn.Module):
         return outputs
 
 
+class TransferBaselineColorMatrix(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+
+        self.color_matrix = nn.Conv2d(in_channels, out_channels, kernel_size=1)
+        # self.color_matrix.weight.data = torch.eye(3).reshape(3, 3, 1, 1)
+        # self.color_matrix.bias.data = torch.zeros(3)
+
+        self.bn = nn.BatchNorm2d(out_channels)
+
+    def forward(self, x):
+
+        x = self.color_matrix(x)
+        x = self.bn(x)
+
+        return x
+
+
+class TransferBaselineConv(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+
+        self.conv1 = nn.Conv2d(in_channels, in_channels, kernel_size=5)
+        self.conv2 = nn.Conv2d(in_channels, out_channels, kernel_size=3)
+
+    def forward(self, x):
+
+        x = self.conv1(x)
+        x = self.conv2(x)
+
+        return x
+
+
 if __name__ == '__main__':
-    net = Unet(3, [64, 128], 3, block_depth=2, bottleneck_depth=2)
-    # from utils import get_layers
-    # conv_layers = get_layers(net, nn.Conv2d)
-    from debug import debug
+    from datasets import get_dataset
 
-    debug(net)
+    dataset = get_dataset('Cytomorphology')
 
-    x = torch.randn((8, 3, 32, 32))
-    y = net(x)
-    debug(y)
+    x = dataset[0][0].unsqueeze(0)
+
+    import matplotlib.pyplot as plt
+    # import torchvision.utils
+    from torchvision.utils import make_grid
+
+    plt.imshow(make_grid(x, normalize=True).permute(1, 2, 0))
+
+    model = TransferBaselineColorMatrix(3, 3)
+    print(model.color_matrix.weight.shape)
+    x = model(x)
+    plt.imshow(make_grid(x, normalize=True).permute(1, 2, 0))
+
+    # net = Unet(3, [64, 128], 3, block_depth=2, bottleneck_depth=2)
+    # # from utils import get_layers
+    # # conv_layers = get_layers(net, nn.Conv2d)
+    # from debug import debug
+
+    # debug(net)
+
+    # x = torch.randn((8, 3, 32, 32))
+    # y = net(x)
+    # debug(y)

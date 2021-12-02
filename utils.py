@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import torch
 from torch import nn
 import torch.nn.functional as F
-from datasets import equivalence_classes
+# from datasets import equivalence_classes
 
 
 def num_params(model):
@@ -43,6 +43,7 @@ def test_accuracy(model, data_loader, transform=None, transfer_map=None, name=No
         correct = labels_correct(predictions, y, transfer_map=transfer_map)
         num_correct += sum(correct)
         num_total += len(correct)
+
     acc = num_correct / num_total if num_total > 0 else 0   # this shouldn't happen
     if name is not None:
         print(f'{name} accuracy: {acc:.3f}')

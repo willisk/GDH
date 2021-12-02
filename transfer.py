@@ -10,8 +10,7 @@ from torch.utils.data import DataLoader
 from utils import calculate_mean_and_std, num_params, test_accuracy, pretty_plot, get_bn_layers, accuracy
 from datasets import Subset, get_dataset, get_transfer_mapping_classes, get_transfer_mapping_labels, CrossEntropyTransfer
 
-from models import ResNet, Unet
-import segmentation_models_pytorch as smp
+from models import get_model
 
 from debug import debug
 from torchvision.utils import make_grid, save_image
@@ -29,8 +28,7 @@ parser.add_argument('--dataset_to',
                     #     'CIFAR10', 'MNIST', 'SVHN'
                     # ],
                     default='CIFAR10')
-parser.add_argument(
-    '--network', choices=['Unet', 'Unet_smp', 'UnetPlusPlus'], default='Unet')
+parser.add_argument('--network', default='Unet')
 parser.add_argument('--model_from', default='models/model.ckpt',
                     help='Model checkpoint for saving/loading.')
 parser.add_argument('--ckpt', default='auto',
@@ -57,12 +55,12 @@ parser.add_argument('--save_best', action='store_true',
                     help='Save only the best models (measured in valid accuracy).')
 args = parser.parse_args()
 
-device = 'cuda'  # if args.cuda else 'cpu'
+device = 'cuda:0'  # if args.cuda else 'cpu'
 
 if args.ckpt == 'auto':
     save_loc = args.model_from.replace(
-        '.ckpt', f'_to_{args.dataset_to}_lr={args.lr:1.0e}_f-st={args.f_stats:1.0e}')
-    save_loc = save_loc.replace('models', 'transfer')
+        '.ckpt', f"_to_{args.dataset_to.replace('_','-')}_lr={args.lr:1.0e}_f-st={args.f_stats:1.0e}")
+    save_loc = save_loc.replace('models/', f'transfer/{args.network}_')
 
 if os.path.exists(save_loc) and args.reset:
     shutil.rmtree(save_loc)
@@ -81,6 +79,8 @@ def log(msg):
 
 
 log('\n' + '\n'.join(f'{k}={v}' for k, v in vars(args).items()) + '\n')
+
+torch.manual_seed(0)
 
 # XXX: enable augmentation
 dataset_to = get_dataset(args.dataset_to, train_augmentation=False)
@@ -105,8 +105,9 @@ log(f'input shape: {classifier_input_shape}')
 
 classes_from = classifier_state_dict['classes']
 classes_to = dataset_to.classes
+
 transfer_map, _ = get_transfer_mapping_labels(classes_from, classes_to)
-log(f'Transfer map: {get_transfer_mapping_classes(classes_from, classes_to)}')
+log(f'Transfer map: {get_transfer_mapping_classes(classes_from, classes_to)}\n')
 
 loss_fn = CrossEntropyTransfer(classes_from, classes_to)
 
@@ -128,26 +129,7 @@ else:
     best_acc = 0
     logs = defaultdict(list)
 
-    if args.network == 'Unet':
-        transfer_model = Unet(
-            in_channels, [64, 128], out_channels, block_depth=2, bottleneck_depth=2)
-    if args.network == 'Unet_smp':
-        transfer_model = smp.Unet(
-            encoder_depth=3,
-            in_channels=in_channels,
-            decoder_channels=(256, 128, 64),
-            classes=out_channels,
-            activation=None,
-        )
-    if args.network == 'UnetPlusPlus':
-        transfer_model = smp.UnetPlusPlus(
-            encoder_depth=3,
-            in_channels=3,
-            decoder_channels=(256, 128, 64),
-            classes=3,
-            activation=None,
-        )
-
+    transfer_model = get_model(args.network, in_channels, out_channels)
     transfer_model.to(device)
 
     optimizer = torch.optim.Adam(transfer_model.parameters(), lr=args.lr)
@@ -181,6 +163,47 @@ if dataset_to.in_channels == 1 and classifier_input_shape[0] == 3:
     transform = grayscale_to_rgb
 elif dataset_to.in_channels == 3 and classifier_input_shape[0] == 1:
     transform = rgb_to_grayscale
+
+
+# def labels_correct(y_pred, y, transfer_map=None):
+#     if transfer_map is None:
+#         return (y_pred == y).tolist()
+#     x = y_pred
+#     for true_label, pred in zip(y.tolist(), x.tolist()):
+#         print('(prediction)', classes_from[pred],
+#               '(true_label)',  f'{classes_to[true_label]: <10}', '\t=>',
+#               f'{ {classes_from[v] for v in transfer_map[true_label]} }', pred in transfer_map[true_label])
+
+#     correct = [pred in transfer_map[true_label]
+#                for true_label, pred in zip(y.tolist(), x.tolist())
+#                if len(transfer_map[true_label]) > 0]
+
+#     print(f'{sum(correct)} / {len(correct)}')
+
+#     print(sum(correct) / len(correct))
+#     return correct
+
+
+# @torch.no_grad()
+# def test_accuracy(model, data_loader, transform=None, transfer_map=None, name=None, device='cuda'):
+#     num_total = 0
+#     num_correct = 0
+#     model.eval()
+#     model.to(device)
+#     for x, y in data_loader:
+#         x, y = x.to(device), y.to(device)
+#         if transform is not None:
+#             x = transform(x)
+#         out = model(x)
+#         predictions = out.argmax(dim=1)
+#         correct = labels_correct(predictions, y, transfer_map=transfer_map)
+#         num_correct += sum(correct)
+#         num_total += len(correct)
+
+#     acc = num_correct / num_total if num_total > 0 else 0   # this shouldn't happen
+#     if name is not None:
+#         print(f'{name} accuracy: {acc:.3f}')
+#     return acc
 
 
 # # XXX: should check whether images are normalized after distorting, could be a source of error
@@ -226,14 +249,14 @@ def total_variation(x):
 
 _zero = torch.zeros([1], device=device)
 
-if not os.path.exists(model_ckpt) or args.resume_training or args.reset:
+if not os.path.exists(model_ckpt) or args.reset:
 
     log('Training transfer model ' f'{args.network}, '
         f'params:\t{num_params(transfer_model) / 1000:.2f} K')
 
     full_model.to(device)
 
-    for epoch in range(init_epoch, init_epoch + args.num_epochs):
+    for epoch in range(init_epoch, args.num_epochs):
         full_model.train()
 
         step_start = epoch * len(train_loader)
@@ -279,32 +302,38 @@ if not os.path.exists(model_ckpt) or args.resume_training or args.reset:
             valid_acc_old, valid_acc, steps=len(train_loader)).tolist()
         logs['val_acc'].extend(interpolate_valid_acc)
 
-        log(f'[{epoch + 1}/{init_epoch + args.num_epochs}] ' +
+        log(f'[{epoch + 1}/{args.num_epochs}] ' +
             ', '.join([f'{k} {v:.3f}' for k, v in metrics.items()]))
 
-        if (epoch + 1) % 10 == 0:
+        save_model = not args.save_best or valid_acc > best_acc
+        save_samples = (epoch + 1) % 10 == 0
+
+        if save_model or save_samples:
             view_batch = next(iter(valid_loader))[0][:32].to(device)
-            save_image(make_grid(view_batch.cpu(), normalize=True),
-                       f'{save_loc}/sample_input.png')
             samples = transfer_model(view_batch)
 
-            save_image(make_grid(samples.cpu(), normalize=True),
-                       f'{save_loc}/sample_{epoch + 1:02d}.png')
+            if save_samples:
+                save_image(make_grid(view_batch.cpu(), normalize=True),
+                           f'{save_loc}/sample_input.png')
 
-        # if not args.save_best or valid_acc > best_acc:
-            pretty_plot(logs, steps_per_epoch=len(train_loader),
-                        smoothing=50, save_loc=plot_loc)
-            best_acc = valid_acc
-            save_image(make_grid(samples.cpu(), normalize=True),
-                       f'{save_loc}/sample_best.png')
+                save_image(make_grid(samples.cpu(), normalize=True),
+                           f'{save_loc}/sample_{epoch + 1:02d}.png')
 
-            log(f'Saving transfer_model to {model_ckpt}')
-            torch.save({'model': transfer_model, 'optimizer': optimizer, 'epoch': epoch + 1,
-                       'acc': best_acc, 'logs': logs}, model_ckpt)
+            if save_model:
+                best_acc = valid_acc
+
+                pretty_plot(logs, steps_per_epoch=len(train_loader),
+                            smoothing=200, save_loc=plot_loc)
+                save_image(make_grid(samples.cpu(), normalize=True),
+                           f'{save_loc}/sample_best.png')
+
+                log(f'Saving transfer_model to {model_ckpt}')
+                torch.save({'model': transfer_model, 'optimizer': optimizer, 'epoch': epoch + 1,
+                            'acc': best_acc, 'logs': logs}, model_ckpt)
 
     # if args.save_best:
     #     state_dict = torch.load(model_ckpt, map_location=device)
     #     log(f"Loading best model {model_ckpt} ({state_dict['epoch']} epochs), valid acc {best_acc:.3f}")
 
 
-pretty_plot(logs, smoothing=50)
+pretty_plot(logs, smoothing=200)

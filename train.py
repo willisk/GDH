@@ -15,22 +15,16 @@ import argparse
 os.makedirs('models', exist_ok=True)
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--dataset',
-                    # choices=[
-                    # 'PBCBarcelona', 'PBCBarcelona_2x', 'PBCBarcelona_4x',
-                    # 'Cytomorphology', 'Cytomorphology_2x', 'Cytomorphology_4x',
-                    # 'CIFAR10', 'MNIST', 'SVHN'],
-                    default='CIFAR10')
+parser.add_argument('--dataset', default='CIFAR10')
 parser.add_argument(
     '--network', choices=['resnet18', 'resnet34'], default='resnet18')
 parser.add_argument('--ckpt', default='auto',
                     help='Model checkpoint for saving/loading.')
 parser.add_argument('--cuda', action='store_true')
-parser.add_argument('--num_epochs', type=int, default=3,
+parser.add_argument('--num_epochs', type=int, default=5,
                     help='Number of training epochs.')
 parser.add_argument('--lr', type=float, default=0.01, help='learning rate')
 parser.add_argument('--batch_size', type=int, default=64, help='batch size')
-parser.add_argument('--resume_training', action='store_true')
 parser.add_argument('--reset', action='store_true')
 parser.add_argument('--save_best', action='store_true',
                     help='Save only the best models (measured in valid accuracy).')
@@ -71,6 +65,9 @@ num_classes = dataset.num_classes
 
 ##################################### Train Model #####################################
 
+# print(dataset.classes)
+# print(dataset.class_labels)
+
 loss_fn = nn.CrossEntropyLoss()
 
 if os.path.exists(args.ckpt) and not args.reset:
@@ -102,12 +99,12 @@ valid_acc = test_accuracy(model, valid_loader, name='valid', device=device)
 
 log('\n' + '\n'.join(f'{k}={v}' for k, v in vars(args).items()) + '\n')
 
-if not os.path.exists(args.ckpt) or args.resume_training or args.reset:
+if not os.path.exists(args.ckpt) or args.reset:
 
     log('Training ' f'{model.__class__.__name__}, '
         f'params:\t{num_params(model) / 1000:.2f} K')
 
-    for epoch in range(init_epoch, init_epoch + args.num_epochs):
+    for epoch in range(init_epoch, args.num_epochs):
         model.train()
         step_start = epoch * len(train_loader)
         for step, (x, y) in enumerate(train_loader, start=step_start):
@@ -127,9 +124,7 @@ if not os.path.exists(args.ckpt) or args.resume_training or args.reset:
             optimizer.step()
 
             if step % len(train_loader) % 50 == 0:
-                # print(f'[{epoch}/{init_epoch + args.num_epochs}:{step % len(train_loader):3d}] '
-                #       + ', '.join([f'{k} {v:.3f}' for k, v in metrics.items()]))
-                log(f'[{epoch}/{init_epoch + args.num_epochs}:{step % len(train_loader):3d}] '
+                log(f'[{epoch}/{args.num_epochs}:{step % len(train_loader):3d}] '
                     + ', '.join([f'{k} {v:.3f}' for k, v in metrics.items()]))
 
         model.eval()
