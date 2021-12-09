@@ -8,9 +8,14 @@ import segmentation_models_pytorch as smp
 
 
 def get_model(model, in_channels, out_channels):
+    if model == 'Resnet18':
+        return Resnet(in_channels, [64] * 2 + [128] * 2 + [256] * 2 + [512] * 2, out_channels)
+    if model == 'Resnet34':
+        return Resnet(in_channels, [64] * 3 + [128] * 4 + [256] * 6 + [512] * 3, out_channels)
+
     if model == 'Unet':
         return Unet(in_channels, [64, 128], out_channels, block_depth=2, bottleneck_depth=2)
-    if model == 'Unet_smp':
+    if model == 'UnetSmp':
         return smp.Unet(
             encoder_depth=3,
             in_channels=in_channels,
@@ -64,7 +69,7 @@ class ResBlock(nn.Module):
         return F.relu(self.block(x) + self.skip(x))
 
 
-class ResNet(nn.Module):
+class Resnet(nn.Module):
     def __init__(self, in_channels, block_features, num_classes=10, linear_head=True):
         super().__init__()
         block_features = [block_features[0]] + block_features
@@ -95,16 +100,6 @@ class ResNet(nn.Module):
             x = x.reshape(x.shape[0], -1)
         x = self.head(x)
         return x
-
-
-def resnet18(in_channels, num_classes):
-    block_features = [64] * 2 + [128] * 2 + [256] * 2 + [512] * 2
-    return ResNet(in_channels, block_features, num_classes)
-
-
-def resnet34(in_channels, num_classes):
-    block_features = [64] * 3 + [128] * 4 + [256] * 6 + [512] * 3
-    return ResNet(in_channels, block_features, num_classes)
 
 
 class Unet(nn.Module):

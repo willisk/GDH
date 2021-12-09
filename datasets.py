@@ -52,19 +52,19 @@ EQUIVALENCE_CLASSES = {
 def get_dataset(dataset, train_augmentation=False):
     if dataset == 'PBCBarcelona':
         return PBCBarcelona()
-    if dataset == 'PBCBarcelona_2x':
+    if dataset == 'PBCBarcelona-2x':
         return PBCBarcelona(reduce=2)
-    if dataset == 'PBCBarcelona_4x':
+    if dataset == 'PBCBarcelona-4x':
         return PBCBarcelona(reduce=4)
 
     if dataset == 'Cytomorphology':
         return Cytomorphology()
-    if dataset == 'Cytomorphology_2x':
+    if dataset == 'Cytomorphology-2x':
         return Cytomorphology(reduce=2)
-    if dataset == 'Cytomorphology_4x':
+    if dataset == 'Cytomorphology-4x':
         return Cytomorphology(reduce=4)
 
-    if dataset == 'Cytomorphology_PBC':
+    if dataset == 'Cytomorphology-4x-PBC':
         return CytomorphologyPBC(reduce=4)
 
     if dataset == 'MNIST':
@@ -76,7 +76,7 @@ def get_dataset(dataset, train_augmentation=False):
     elif dataset == 'CIFAR10Distorted':
         return CIFAR10Distorted(train_augmentation)
 
-    raise Exception('invalid dataset')
+    raise Exception(f"invalid dataset '{dataset}'")
 
 
 class TorchDatasetWrapper():
@@ -529,7 +529,7 @@ def identity_map(x):
 def get_transfer_mapping_labels(from_classes, to_classes):
 
     if (set(from_classes) == set(to_classes)):   # equal sets, return identity mapping
-        return {label: {from_classes.index(clss_to)} for label, clss_to in enumerate(to_classes)}, True
+        return {label: {from_classes.index(clss_to)} for label, clss_to in enumerate(to_classes)}
 
     # assume from_classes < to_classes: unique mapping exists
     transfer_map = {label: {from_classes.index(EQUIVALENCE_CLASSES[clss_to])}
@@ -538,7 +538,7 @@ def get_transfer_mapping_labels(from_classes, to_classes):
 
     # if len({*transfer_map.values()}) > 1:
     if len(set().union(*transfer_map.values())) > 1:
-        return transfer_map, True
+        return transfer_map
 
     # from_classes > to_classes
     transfer_map = {label: {i for i, clss_from in enumerate(from_classes)
@@ -548,13 +548,12 @@ def get_transfer_mapping_labels(from_classes, to_classes):
     assert len(set().union(*transfer_map.values())
                ) > 1, 'error in equivalence classes'
 
-    return transfer_map, False
+    return transfer_map
 
 
-# helper only
 def get_transfer_mapping_classes(from_classes, to_classes):
 
-    transfer_map, _ = get_transfer_mapping_labels(from_classes, to_classes)
+    transfer_map = get_transfer_mapping_labels(from_classes, to_classes)
 
     transfer_map_classes = {to_classes[k]: {from_classes[v] for v in values}
                             for k, values in transfer_map.items()}
@@ -569,8 +568,11 @@ class CrossEntropyTransfer():
         # if from_classes < (subset) to_classes, this is easy: transform to_classes -> from_classes
         # if from_classes > to_classes, equally boost corresponding from_classes with averaged weight
 
-        self.transfer_map, self.transform_labels = get_transfer_mapping_labels(
+        self.transfer_map = get_transfer_mapping_labels(
             from_classes, to_classes)
+
+        self.unique_mapping = len(
+            [v for v in self.transfer_map.values() if len(v) == 1]) == len(self.transfer_map)
 
     def __call__(self, x, y):
         labels = y.tolist()
@@ -578,7 +580,7 @@ class CrossEntropyTransfer():
         labels = [l for l, m in zip(labels, mask) if m]
         x = x[mask]
 
-        if not self.transform_labels:  # from_classes < to_classes; simply map labels
+        if self.unique_mapping:  # from_classes < to_classes; simply map labels
             y = torch.LongTensor([list(self.transfer_map[l])[0]
                                   for l, m in zip(labels, mask) if m]).to(x.device)
             loss = -1 * F.log_softmax(x, 1).gather(1, y.unsqueeze(1))

@@ -1,3 +1,4 @@
+import sys
 from torchvision.transforms.functional import rgb_to_grayscale
 import torchvision.transforms as T
 from collections import defaultdict
@@ -48,6 +49,8 @@ parser.add_argument('--f_reg', type=float, default=0,
 
 parser.add_argument('--unsupervised', action='store_true',
                     help='Don\'t use label information.')
+parser.add_argument('--fine_tune', action='store_true',
+                    help='fine tune classifier head')
 
 parser.add_argument('--resume_training', action='store_true')
 parser.add_argument('--reset', action='store_true')
@@ -57,19 +60,36 @@ args = parser.parse_args()
 
 device = 'cuda:0'  # if args.cuda else 'cpu'
 
+
 if args.ckpt == 'auto':
-    save_loc = args.model_from.replace(
-        '.ckpt', f"_to_{args.dataset_to.replace('_','-')}_lr={args.lr:1.0e}_f-st={args.f_stats:1.0e}")
-    save_loc = save_loc.replace('models/', f'transfer/{args.network}_')
+    append_loc_sci = [f"{a.replace('_', '-')}={getattr(args, a):1.0e}"
+                      for a in ['lr', 'f_stats', 'f_reg']
+                      if f'--{a}' in sys.argv]
+
+    append_loc_v = [f"{a.replace('_', '-')}={getattr(args, a)}"
+                    for a in ['size', 'unsupervised', 'fine_tune']
+                    if f'--{a}' in sys.argv]
+
+    append_to_loc = '_'.join(append_loc_sci + append_loc_v)
+
+    save_loc = args.model_from \
+        .replace('models/', f'transfer/{args.network}_') \
+        .replace('.ckpt', f"_to_{args.dataset_to}_{append_to_loc}")
+
+model_ckpt = f'{save_loc}/model.ckpt'
+plot_loc = f'{save_loc}/metrics.png'
+log_loc = f'{save_loc}/log.txt'
+args_loc = f'{save_loc}/args.txt'
 
 if os.path.exists(save_loc) and args.reset:
     shutil.rmtree(save_loc)
 
 os.makedirs(save_loc, exist_ok=True)
 
-model_ckpt = f'{save_loc}/model.ckpt'
-plot_loc = f'{save_loc}/metrics.png'
-log_loc = f'{save_loc}/log.txt'
+
+args_log = '\n'.join(f'{k}={v}' for k, v in vars(args).items())
+with open(args_loc, 'w') as f:
+    f.write(args_log)
 
 
 def log(msg):
@@ -78,7 +98,7 @@ def log(msg):
         f.write(msg + '\n')
 
 
-log('\n' + '\n'.join(f'{k}={v}' for k, v in vars(args).items()) + '\n')
+log('\n' + args_log + '\n')
 
 torch.manual_seed(0)
 
@@ -106,7 +126,7 @@ log(f'input shape: {classifier_input_shape}')
 classes_from = classifier_state_dict['classes']
 classes_to = dataset_to.classes
 
-transfer_map, _ = get_transfer_mapping_labels(classes_from, classes_to)
+transfer_map = get_transfer_mapping_labels(classes_from, classes_to)
 log(f'Transfer map: {get_transfer_mapping_classes(classes_from, classes_to)}\n')
 
 loss_fn = CrossEntropyTransfer(classes_from, classes_to)
@@ -132,7 +152,7 @@ else:
     transfer_model = get_model(args.network, in_channels, out_channels)
     transfer_model.to(device)
 
-    optimizer = torch.optim.Adam(transfer_model.parameters(), lr=args.lr)
+    optimizer = None
 
 
 class FullModel(nn.Module):
@@ -143,6 +163,10 @@ class FullModel(nn.Module):
 
         for p in classifier.parameters():   # freeze classifier
             p.requires_grad = False
+
+        if args.fine_tune:
+            for p in classifier.head.parameters():
+                p.requires_grad = True
 
     def forward(self, x):
         x = self.transfer_model(x)
@@ -156,6 +180,13 @@ class FullModel(nn.Module):
 
 full_model = FullModel()
 
+if optimizer is None:
+    parameters = list(transfer_model.parameters())
+    if args.fine_tune:
+        parameters += list(classifier.head.parameters())
+    optimizer = torch.optim.Adam(parameters, lr=args.lr)
+
+
 grayscale_to_rgb = T.Lambda(lambda x: x.repeat_interleave(3, 1))
 
 transform = None
@@ -165,55 +196,12 @@ elif dataset_to.in_channels == 3 and classifier_input_shape[0] == 1:
     transform = rgb_to_grayscale
 
 
-# def labels_correct(y_pred, y, transfer_map=None):
-#     if transfer_map is None:
-#         return (y_pred == y).tolist()
-#     x = y_pred
-#     for true_label, pred in zip(y.tolist(), x.tolist()):
-#         print('(prediction)', classes_from[pred],
-#               '(true_label)',  f'{classes_to[true_label]: <10}', '\t=>',
-#               f'{ {classes_from[v] for v in transfer_map[true_label]} }', pred in transfer_map[true_label])
-
-#     correct = [pred in transfer_map[true_label]
-#                for true_label, pred in zip(y.tolist(), x.tolist())
-#                if len(transfer_map[true_label]) > 0]
-
-#     print(f'{sum(correct)} / {len(correct)}')
-
-#     print(sum(correct) / len(correct))
-#     return correct
-
-
-# @torch.no_grad()
-# def test_accuracy(model, data_loader, transform=None, transfer_map=None, name=None, device='cuda'):
-#     num_total = 0
-#     num_correct = 0
-#     model.eval()
-#     model.to(device)
-#     for x, y in data_loader:
-#         x, y = x.to(device), y.to(device)
-#         if transform is not None:
-#             x = transform(x)
-#         out = model(x)
-#         predictions = out.argmax(dim=1)
-#         correct = labels_correct(predictions, y, transfer_map=transfer_map)
-#         num_correct += sum(correct)
-#         num_total += len(correct)
-
-#     acc = num_correct / num_total if num_total > 0 else 0   # this shouldn't happen
-#     if name is not None:
-#         print(f'{name} accuracy: {acc:.3f}')
-#     return acc
-
-
-# # XXX: should check whether images are normalized after distorting, could be a source of error
-# # also for running test_accuracy without the transfer model, grayscale_torgb will change normalization
-# # calculate_mean_and_std()
-test_accuracy(classifier, valid_loader, transform=transform, transfer_map=transfer_map,
-              name='no transfer valid', device=device)
+no_transfer_valid_acc = test_accuracy(classifier, valid_loader, transform=transform, transfer_map=transfer_map,
+                                      name='no transfer valid', device=device)
 valid_acc = test_accuracy(full_model, valid_loader, transfer_map=transfer_map,
                           name='valid', device=device)
 
+logs['no_transfer_acc'] = [no_transfer_valid_acc]
 
 ##################################### Training #####################################
 # SETUP hooks
@@ -236,104 +224,92 @@ for l, layer in enumerate(bn_layers):
 
 
 def normalize(x):
-    return x.mean(dim=[0, 2, 3]).norm() + (1 - x.var(dim=[0, 2, 3])).norm()
-
-
-def total_variation(x):
-    tv = ((x[:, :, :, :-1] - x[:, :, :, 1:]).norm()
-          + (x[:, :, :-1, :] - x[:, :, 1:, :]).norm()
-          + (x[:, :, 1:, :-1] - x[:, :, :-1, 1:]).norm()
-          + (x[:, :, :-1, :-1] - x[:, :, 1:, 1:]).norm())
-    return tv
+    return x.mean(dim=[0, 2, 3]).norm() + (1 - x.std(dim=[0, 2, 3])).norm()
 
 
 _zero = torch.zeros([1], device=device)
 
-if not os.path.exists(model_ckpt) or args.reset:
+log('Training transfer model ' f'{args.network}, '
+    f'params:\t{num_params(transfer_model) / 1000:.2f} K')
 
-    log('Training transfer model ' f'{args.network}, '
-        f'params:\t{num_params(transfer_model) / 1000:.2f} K')
+full_model.to(device)
 
-    full_model.to(device)
+for epoch in range(init_epoch, args.num_epochs):
+    full_model.train()
 
-    for epoch in range(init_epoch, args.num_epochs):
-        full_model.train()
+    step_start = epoch * len(train_loader)
+    for step, (x, y) in enumerate(train_loader, start=step_start):
+        x, y = x.to(device), y.to(device)
 
-        step_start = epoch * len(train_loader)
-        for step, (x, y) in enumerate(train_loader, start=step_start):
-            x, y = x.to(device), y.to(device)
+        # logits = full_model(x)
+        x_transfer = transfer_model(x)
+        logits = classifier(x_transfer)
+        loss_crit = loss_fn(logits, y)
 
-            logits = full_model(x)
+        loss_bn = args.f_stats * \
+            sum(bn_losses) if args.f_stats != 0 else _zero
+        loss_reg = args.f_reg * \
+            (normalize(x_transfer) + (x - x_transfer).norm()
+             ) if args.f_reg != 0 else _zero
 
-            loss_crit = loss_fn(logits, y)
-            loss_bn = args.f_stats * \
-                sum(bn_losses) if args.f_stats != 0 else _zero
-            loss_reg = args.f_reg * \
-                (normalize(x) + total_variation(x)) if args.f_reg != 0 else _zero
+        loss = loss_bn + loss_reg
 
-            loss = loss_bn + loss_reg
+        y_pred = logits.argmax(dim=1)
+        acc = accuracy(y_pred, y, transfer_map=transfer_map)
 
-            y_pred = logits.argmax(dim=1)
-            acc = accuracy(y_pred, y, transfer_map=transfer_map)
+        metrics = {'acc': acc, 'loss_bn': loss_bn.item(),
+                   'loss_reg': loss_reg.item()}
 
-            # acc = sum(correct) / len(correct)
-            # acc = (logits.argmax(dim=1) == y).float().mean().item()
+        if not args.unsupervised:
+            loss += loss_crit
+            metrics['loss_crit'] = loss_crit.item()
 
-            metrics = {'acc': acc, 'loss_bn': loss_bn.item(),
-                       'loss_reg': loss_reg.item()}
+        for m, v in metrics.items():
+            logs[m].append(v)
 
-            if not args.unsupervised:
-                loss += loss_crit
-                metrics['loss_crit'] = loss_crit.item()
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
 
-            for m, v in metrics.items():
-                logs[m].append(v)
+    full_model.eval()
+    valid_acc_old = valid_acc
+    valid_acc = test_accuracy(
+        full_model, valid_loader, transfer_map=transfer_map, device=device)
+    metrics['valid_acc'] = valid_acc
+    interpolate_valid_acc = torch.linspace(
+        valid_acc_old, valid_acc, steps=len(train_loader)).tolist()
+    logs['val_acc'].extend(interpolate_valid_acc)
+    logs['no_transfer_acc'] = [no_transfer_valid_acc] * \
+        ((epoch + 1) * len(train_loader))
 
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+    log(f'[{epoch + 1}/{args.num_epochs}] ' +
+        ', '.join([f'{k} {v:.3f}' for k, v in metrics.items()]))
 
-        full_model.eval()
-        valid_acc_old = valid_acc
-        valid_acc = test_accuracy(
-            full_model, valid_loader, transfer_map=transfer_map, device=device)
-        metrics['valid_acc'] = valid_acc
-        interpolate_valid_acc = torch.linspace(
-            valid_acc_old, valid_acc, steps=len(train_loader)).tolist()
-        logs['val_acc'].extend(interpolate_valid_acc)
+    save_model = not args.save_best or valid_acc > best_acc
+    save_samples = (epoch + 1) % 10 == 0
 
-        log(f'[{epoch + 1}/{args.num_epochs}] ' +
-            ', '.join([f'{k} {v:.3f}' for k, v in metrics.items()]))
+    if save_model or save_samples:
+        view_batch = next(iter(valid_loader))[0][:32].to(device)
+        samples = transfer_model(view_batch)
 
-        save_model = not args.save_best or valid_acc > best_acc
-        save_samples = (epoch + 1) % 10 == 0
+        if save_samples:
+            save_image(make_grid(view_batch.cpu(), normalize=True),
+                       f'{save_loc}/sample_input.png')
 
-        if save_model or save_samples:
-            view_batch = next(iter(valid_loader))[0][:32].to(device)
-            samples = transfer_model(view_batch)
+            save_image(make_grid(samples.cpu(), normalize=True),
+                       f'{save_loc}/sample_{epoch + 1:02d}.png')
 
-            if save_samples:
-                save_image(make_grid(view_batch.cpu(), normalize=True),
-                           f'{save_loc}/sample_input.png')
+        if save_model:
+            best_acc = valid_acc
 
-                save_image(make_grid(samples.cpu(), normalize=True),
-                           f'{save_loc}/sample_{epoch + 1:02d}.png')
+            pretty_plot(logs, steps_per_epoch=len(train_loader),
+                        smoothing=200, save_loc=plot_loc)
+            save_image(make_grid(samples.cpu(), normalize=True),
+                       f'{save_loc}/sample_best.png')
 
-            if save_model:
-                best_acc = valid_acc
-
-                pretty_plot(logs, steps_per_epoch=len(train_loader),
-                            smoothing=200, save_loc=plot_loc)
-                save_image(make_grid(samples.cpu(), normalize=True),
-                           f'{save_loc}/sample_best.png')
-
-                log(f'Saving transfer_model to {model_ckpt}')
-                torch.save({'model': transfer_model, 'optimizer': optimizer, 'epoch': epoch + 1,
-                            'acc': best_acc, 'logs': logs}, model_ckpt)
-
-    # if args.save_best:
-    #     state_dict = torch.load(model_ckpt, map_location=device)
-    #     log(f"Loading best model {model_ckpt} ({state_dict['epoch']} epochs), valid acc {best_acc:.3f}")
+            log(f'Saving transfer_model to {model_ckpt}')
+            torch.save({'model': transfer_model, 'optimizer': optimizer, 'epoch': epoch + 1,
+                        'acc': best_acc, 'logs': logs}, model_ckpt)
 
 
 pretty_plot(logs, smoothing=200)

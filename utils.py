@@ -131,3 +131,11 @@ def calculate_mean_and_std(data_loader):
     std /= len(data_loader)
     print(f'mean: {mean}')
     print(f'std: {std}')
+
+
+def total_variation(x):
+    tv = ((x[:, :, :, :-1] - x[:, :, :, 1:]).norm()
+          + (x[:, :, :-1, :] - x[:, :, 1:, :]).norm()
+          + (x[:, :, 1:, :-1] - x[:, :, :-1, 1:]).norm()
+          + (x[:, :, :-1, :-1] - x[:, :, 1:, 1:]).norm())
+    return tv

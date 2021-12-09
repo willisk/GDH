@@ -1,20 +1,17 @@
 # export CUDA_VISIBLE_DEVICES=0
-# --dataset Cytomorphology_PBC \
 
 run='python -m IPython --no-banner --no-confirm-exit'
-$run train.py -- \
---network resnet34 \
---dataset Cytomorphology_PBC \
---cuda \
---save_best \
---lr 0.01 \
---batch_size 64 \
---num_epochs 5 \
 
-# --reset \
 
-# --resume_training
+for dataset in PBCBarcelona Cytomorphology-4x Cytomorphology-4x-PBC 
+    do
 
-# --dataset PBCBarcelona \
-# --model_ckpt models/PBCBarcelona_resnet34_no_augmentation \
-# --batch_size 4 \
+    $run train.py -- \
+    --network Resnet34 \
+    --dataset $dataset \
+    --lr 0.01 \
+    --batch_size 64 \
+    --num_epochs 10 \
+    --save_best \
+
+done

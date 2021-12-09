@@ -1,28 +1,61 @@
 run='python -m IPython --no-banner --no-confirm-exit'
 
+# $run transfer.py -- \
+# --dataset_to Cytomorphology-4x \
+# --network Unet \
+# --network BaselineColorMatrix \
+# --model_from models/Cytomorphology-PBC-resnet34.ckpt \
+# --cuda \
+# --lr 1e-3 \
+# --f_stats 1e-7 \
+# --batch_size 64 \
+# --num_epochs 3 \
+# --reset
+
 $run transfer.py -- \
---dataset_to Cytomorphology_PBC \
+--dataset_to PBCBarcelona-4x \
 --network Unet \
---network BaselineColorMatrix \
---model_from models/Cytomorphology_4x_resnet34.ckpt \
+--model_from models/Cytomorphology-4x_Resnet34.ckpt \
 --cuda \
---save_best \
---lr 0.01 \
+--size 128 \
+--lr 1e-3 \
 --f_stats 1e-7 \
 --batch_size 64 \
---num_epochs 10 \
---reset
+--num_epochs 30
 
-# --network BaselineColorMatrix \
+# $run train.py -- \
+# --network Resnet34 \
+# --dataset Cytomorphology-4x \
+# --lr 0.01 \
+# --batch_size 64 \
+# --num_epochs 5 \
 
-# --size 512 \
+# $run train.py -- \
+# --network Resnet34 \
+# --dataset Cytomorphology-4x-PBC \
+# --lr 0.01 \
+# --batch_size 64 \
+# --num_epochs 5 \
 
-# python invert.py \
-# --model models/SVHN_resnet34.ckpt \
-# --cuda \
-# --save_best \
-# --lr 0.1 \
-# --f_stats 0 \
-# --batch_size 512 \
-# --num_epochs 2000 \
-# --reset
+# for lr in 1e-2 1e-3 1e-4 1e-5 1e-6 1e-7
+#     do
+#     for f_st in 0 1e-7
+#         do
+
+#         $run transfer.py -- \
+#         --dataset_to Cytomorphology_PBC \
+#         --network Unet \
+#         --network BaselineColorMatrix \
+#         --model_from models/Cytomorphology_4x_resnet34.ckpt \
+#         --cuda \
+#         --lr $lr \
+#         --f_stats $f_st \
+#         --batch_size 64 \
+#         --num_epochs 30
+
+#         # --resume_training
+
+#         # --dataset_to CIFAR10Distorted \
+#         # --model_from models/CIFAR10_resnet34.ckpt \
+#     done
+# done

@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 from utils import num_params, test_accuracy, pretty_plot
 from datasets import get_dataset
 
-from models import resnet18, resnet34
+from models import get_model
 
 import argparse
 
@@ -17,7 +17,9 @@ os.makedirs('models', exist_ok=True)
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', default='CIFAR10')
 parser.add_argument(
-    '--network', choices=['resnet18', 'resnet34'], default='resnet18')
+    '--network',
+    # choices=['resnet18', 'resnet34'],
+    default='Resnet18')
 parser.add_argument('--ckpt', default='auto',
                     help='Model checkpoint for saving/loading.')
 parser.add_argument('--cuda', action='store_true')
@@ -83,10 +85,7 @@ else:
     best_acc = 0
     logs = defaultdict(list)
 
-    if args.network == 'resnet18':
-        model = resnet18(in_channels, num_classes)
-    if args.network == 'resnet34':
-        model = resnet34(in_channels, num_classes)
+    model = get_model(args.network, in_channels, num_classes)
     model.to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
@@ -99,55 +98,49 @@ valid_acc = test_accuracy(model, valid_loader, name='valid', device=device)
 
 log('\n' + '\n'.join(f'{k}={v}' for k, v in vars(args).items()) + '\n')
 
-if not os.path.exists(args.ckpt) or args.reset:
+log('Training ' f'{model.__class__.__name__}, '
+    f'params:\t{num_params(model) / 1000:.2f} K')
 
-    log('Training ' f'{model.__class__.__name__}, '
-        f'params:\t{num_params(model) / 1000:.2f} K')
+for epoch in range(init_epoch, args.num_epochs):
+    model.train()
+    step_start = epoch * len(train_loader)
+    for step, (x, y) in enumerate(train_loader, start=step_start):
+        x, y = x.to(device), y.to(device)
 
-    for epoch in range(init_epoch, args.num_epochs):
-        model.train()
-        step_start = epoch * len(train_loader)
-        for step, (x, y) in enumerate(train_loader, start=step_start):
-            x, y = x.to(device), y.to(device)
+        logits = model(x)
+        loss = loss_fn(logits, y)
 
-            logits = model(x)
-            loss = loss_fn(logits, y)
+        acc = (logits.argmax(dim=1) == y).float().mean().item()
 
-            acc = (logits.argmax(dim=1) == y).float().mean().item()
+        metrics = {'acc': acc, 'loss': loss.item()}
+        for m, v in metrics.items():
+            logs[m].append(v)
 
-            metrics = {'acc': acc, 'loss': loss.item()}
-            for m, v in metrics.items():
-                logs[m].append(v)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
 
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+        if step % len(train_loader) % 50 == 0:
+            log(f'[{epoch}/{args.num_epochs}:{step % len(train_loader):3d}] '
+                + ', '.join([f'{k} {v:.3f}' for k, v in metrics.items()]))
 
-            if step % len(train_loader) % 50 == 0:
-                log(f'[{epoch}/{args.num_epochs}:{step % len(train_loader):3d}] '
-                    + ', '.join([f'{k} {v:.3f}' for k, v in metrics.items()]))
+    model.eval()
+    valid_acc_old = valid_acc
+    valid_acc = test_accuracy(
+        model, valid_loader, name='valid', device=device)
+    interpolate_valid_acc = torch.linspace(
+        valid_acc_old, valid_acc, steps=len(train_loader)).tolist()
+    logs['val_acc'].extend(interpolate_valid_acc)
 
-        model.eval()
-        valid_acc_old = valid_acc
-        valid_acc = test_accuracy(
-            model, valid_loader, name='valid', device=device)
-        interpolate_valid_acc = torch.linspace(
-            valid_acc_old, valid_acc, steps=len(train_loader)).tolist()
-        logs['val_acc'].extend(interpolate_valid_acc)
+    if not args.save_best or valid_acc > best_acc:
+        pretty_plot(logs, steps_per_epoch=len(train_loader),
+                    smoothing=500, save_loc=plot_loc)
+        best_acc = valid_acc
 
-        if not args.save_best or valid_acc > best_acc:
-            pretty_plot(logs, steps_per_epoch=len(train_loader),
-                        smoothing=50, save_loc=plot_loc)
-            best_acc = valid_acc
+        log(f'Saving model to {args.ckpt}')
+        torch.save({'model': model, 'optimizer': optimizer, 'epoch': epoch + 1,
+                    'acc': best_acc, 'logs': logs, 'input_shape': dataset.input_shape, 'classes': dataset.classes}, args.ckpt)
 
-            log(f'Saving model to {args.ckpt}')
-            torch.save({'model': model, 'optimizer': optimizer, 'epoch': epoch + 1,
-                       'acc': best_acc, 'logs': logs, 'input_shape': dataset.input_shape, 'classes': dataset.classes}, args.ckpt)
-
-    # if args.save_best:
-    #     state_dict = torch.load(args.ckpt, map_location=device)
-    #     log(
-    #         f"Loading best model {args.ckpt} ({state_dict['epoch']} epochs), valid acc {best_acc:.3f}")
 
 # torch.save({'model': model, 'optimizer': optimizer, 'epoch': init_epoch,
 #             'acc': best_acc, 'logs': logs, 'input_shape': dataset.input_shape, 'classes': dataset.classes}, args.ckpt)
