@@ -1,3 +1,4 @@
+import json
 import sys
 from torchvision.transforms.functional import rgb_to_grayscale
 import torchvision.transforms as T
@@ -8,7 +9,7 @@ import torch
 import torch.nn as nn
 
 from torch.utils.data import DataLoader
-from utils import calculate_mean_and_std, num_params, test_accuracy, pretty_plot, get_bn_layers, accuracy
+from utils import calculate_mean_and_std, clamp, num_params, str2bool, test_accuracy, pretty_plot, get_bn_layers, accuracy
 from datasets import Subset, get_dataset, get_transfer_mapping_classes, get_transfer_mapping_labels, CrossEntropyTransfer
 
 from models import get_model
@@ -20,76 +21,80 @@ import argparse
 
 os.makedirs('transfer', exist_ok=True)
 
-
 parser = argparse.ArgumentParser()
-parser.add_argument('--dataset_to',
-                    # choices=[
-                    #     'PBCBarcelona', 'PBCBarcelona_2x', 'PBCBarcelona_4x',
-                    #     'Cytomorphology', 'Cytomorphology_2x', 'Cytomorphology_4x',
-                    #     'CIFAR10', 'MNIST', 'SVHN'
-                    # ],
-                    default='CIFAR10')
+parser.add_argument('--dataset_to', default='CIFAR10')
 parser.add_argument('--network', default='Unet')
 parser.add_argument('--model_from', default='models/model.ckpt',
                     help='Model checkpoint for saving/loading.')
-parser.add_argument('--ckpt', default='auto',
-                    help='Model checkpoint for saving/loading.')
 
-parser.add_argument('--cuda', action='store_true')
 parser.add_argument('--size', type=int, default=4096,
                     help='Sample used for transfer.')
 parser.add_argument('--num_epochs', type=int, default=3,
                     help='Number of training epochs.')
-parser.add_argument('--lr', type=float, default=0.1, help='learning rate')
-parser.add_argument('--batch_size', type=int, default=256, help='batch size')
+parser.add_argument('--lr', type=float, default=0.1, help='Learning rate')
+parser.add_argument('--batch_size', type=int, default=64, help='Batch size')
 parser.add_argument('--f_stats', type=float,
-                    default=0.01, help='stats multiplier')
+                    default=1e-3, help='Stats multiplier')
 parser.add_argument('--f_reg', type=float, default=0,
-                    help='regularization multiplier')
+                    help='Regularization multiplier')
 
-parser.add_argument('--unsupervised', action='store_true',
+parser.add_argument('--unsupervised', type=str2bool,
                     help='Don\'t use label information.')
-parser.add_argument('--fine_tune', action='store_true',
-                    help='fine tune classifier head')
+parser.add_argument('--fine_tune', type=str2bool,
+                    help='Fine tune classifier head')
 
+parser.add_argument('--cuda', action='store_true')
 parser.add_argument('--resume_training', action='store_true')
 parser.add_argument('--reset', action='store_true')
 parser.add_argument('--save_best', action='store_true',
                     help='Save only the best models (measured in valid accuracy).')
+
+parser.add_argument('--save_loc', default='auto',
+                    help='Location for saving/loading.')
+parser.add_argument('--experiment', type=str, help='Experiment name')
 args = parser.parse_args()
 
 device = 'cuda:0'  # if args.cuda else 'cpu'
 
 
-if args.ckpt == 'auto':
+base_dir = 'transfer' + f'/{args.experiment}' if args.experiment else ''
+
+if args.save_loc == 'auto':
     append_loc_sci = [f"{a.replace('_', '-')}={getattr(args, a):1.0e}"
                       for a in ['lr', 'f_stats', 'f_reg']
-                      if f'--{a}' in sys.argv]
+                      if sum([f'--{a}' in arg for arg in sys.argv])]
 
     append_loc_v = [f"{a.replace('_', '-')}={getattr(args, a)}"
                     for a in ['size', 'unsupervised', 'fine_tune']
-                    if f'--{a}' in sys.argv]
+                    if sum([f'--{a}' in arg for arg in sys.argv])]
 
-    append_to_loc = '_'.join(append_loc_sci + append_loc_v)
+    append_args_to_loc = '_'.join(append_loc_sci + append_loc_v)
 
-    save_loc = args.model_from \
-        .replace('models/', f'transfer/{args.network}_') \
-        .replace('.ckpt', f"_to_{args.dataset_to}_{append_to_loc}")
+    # print('sys argv TRANSFER', sys.argv)
+
+    model_from = args.model_from.split('/')[-1].split('.')[0]
+
+    save_loc = f'{base_dir}/{args.network}_{model_from}_to_{args.dataset_to}_{append_args_to_loc}'
+else:
+    save_loc = args.save_loc
 
 model_ckpt = f'{save_loc}/model.ckpt'
 plot_loc = f'{save_loc}/metrics.png'
 log_loc = f'{save_loc}/log.txt'
-args_loc = f'{save_loc}/args.txt'
+args_loc = f'{save_loc}/args.json'
 
 if os.path.exists(save_loc) and args.reset:
     shutil.rmtree(save_loc)
 
 os.makedirs(save_loc, exist_ok=True)
 
+print('using root directory', save_loc)
 
-args_log = '\n'.join(f'{k}={v}' for k, v in vars(args).items())
+
+# json.dumps()
+
 with open(args_loc, 'w') as f:
-    f.write(args_log)
+    f.write(json.dumps(vars(args)))
 
 
 def log(msg):
@@ -98,14 +103,16 @@ def log(msg):
         f.write(msg + '\n')
 
 
-log('\n' + args_log + '\n')
+args_log = '\n'.join(f'{k}={v}' for k, v in vars(args).items())
+log(args_log + '\n')
 
 torch.manual_seed(0)
 
 # XXX: enable augmentation
 dataset_to = get_dataset(args.dataset_to, train_augmentation=False)
-train_set = Subset(dataset_to.train_set, range(args.size)
-                   ) if args.size > 0 else Subset(dataset_to.train_set)
+train_size = min(args.size, len(dataset_to.train_set)
+                 ) if args.size > 0 else len(dataset_to.train_set)
+train_set = Subset(dataset_to.train_set, range(train_size))
 train_loader = DataLoader(
     train_set, batch_size=args.batch_size, shuffle=True, num_workers=16)
 valid_loader = DataLoader(
@@ -119,7 +126,7 @@ classifier_input_shape = classifier_state_dict['input_shape']
 log(
     f"Loaded model {args.model_from} ({classifier_state_dict['epoch']} epochs), valid acc {classifier_state_dict['acc']:.3f}")
 
-log(f'input shape: {classifier_input_shape}')
+log(f'Dataset {args.dataset_to} [{train_size}/{len(dataset_to.train_set)}], input shape {classifier_input_shape}')
 
 ##################################### Transfer Model #####################################
 
@@ -312,4 +319,5 @@ for epoch in range(init_epoch, args.num_epochs):
                         'acc': best_acc, 'logs': logs}, model_ckpt)
 
 
+# print(logs)
 pretty_plot(logs, smoothing=200)

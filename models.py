@@ -17,9 +17,10 @@ def get_model(model, in_channels, out_channels):
         return Unet(in_channels, [64, 128], out_channels, block_depth=2, bottleneck_depth=2)
     if model == 'UnetSmp':
         return smp.Unet(
-            encoder_depth=3,
+            encoder_depth=1,
             in_channels=in_channels,
-            decoder_channels=(256, 128, 64),
+            decoder_channels=(64,),
+            # decoder_channels=(256, 128, 64),
             classes=out_channels,
             activation=None,
         )

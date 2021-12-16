@@ -1,0 +1,22 @@
+{
+  "transfer_base_args": [
+    "--dataset_to=PBCBarcelona-4x",
+    "--network=Unet",
+    "--model_from=models/Cytomorphology-4x_Resnet34.ckpt",
+    "--lr=1e-3",
+    "--f_stats=1e-7",
+    "--size=4096",
+    "--batch_size=64",
+    "--num_epochs=50",
+    "--cuda"
+  ],
+  "param_grid": {
+    "network": ["Unet", "UnetSmp", "BaselineColorMatrix", "BaselineConv"],
+    "size": [128, 512, 2048, 8192, 32768]
+  },
+  "plot": {
+    "label_param": "network",
+    "x_param": "size",
+    "y_param": "acc"
+  }
+}
