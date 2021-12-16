@@ -195,36 +195,25 @@ def smoothen(x, smoothing=11):
     return x
 
 
-if x_param == 'epoch':
-    x = epochs
+x = epochs if x_param == 'epoch' else param_grid[x_param]
 
-    for i, id in enumerate(param_ids.keys()):
-        y = smoothen(results[id][y_param], smoothing=201)
-
-        color, linestyle = (None, None) if param_ids_styles is None \
-            else param_ids_styles[i]
-
-        plt.plot(x, y, color=color, linestyle=linestyle, label=id)
-
-        print('label', id, 'color', color, 'style', linestyle)
-
-
-else:
-    x = param_grid[x_param]
-
-    for i, label in enumerate(labels):
-        filtered_ids = {id: params
+for i, label in enumerate(labels):
+    if x_param == 'epoch':
+        y = smoothen(results[label][y_param], smoothing=201)
+    else:
+        filtered_ids = [id
                         for id, params in param_ids.items()
-                        if (params[label_param] == label if use_filter else True)}
+                        if (params[label_param] == label if use_filter else True)]
 
-        y = [parse_logs(results[id][y_param]) for id in filtered_ids.keys()]
-        print('x', x)
-        print('y', y)
-
-        # plt.plot(x, y, color=color, linestyle=linestyle, label=label)
+        y = [parse_logs(results[id][y_param]) for id in filtered_ids]
 
         plt.xticks(x)
         plt.xscale('log')
+
+    color, linestyle = (None, None) if param_ids_styles is None \
+        else param_ids_styles[i]
+
+    plt.plot(x, y, color=color, linestyle=linestyle, label=label)
 
 
 plt.plot(x, [no_transfer_acc] * len(x),

@@ -13,7 +13,7 @@
   "param_grid": {
     "network": ["Unet", "UnetSmp", "BaselineColorMatrix", "BaselineConv"],
     "unsupervised": ["True", "False"],
-    "fine_tune": ["False"]
+    "fine_tune": ["True"]
   },
   "plot": {
     "label_param": "IDs",
