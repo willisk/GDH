@@ -43,7 +43,7 @@ parser.add_argument('--unsupervised', type=str2bool,
 parser.add_argument('--fine_tune', type=str2bool,
                     help='Fine tune classifier head')
 
-parser.add_argument('--cuda', action='store_true')
+parser.add_argument('--device', default='cuda')
 parser.add_argument('--resume_training', action='store_true')
 parser.add_argument('--reset', action='store_true')
 parser.add_argument('--save_best', action='store_true',
@@ -54,7 +54,7 @@ parser.add_argument('--save_loc', default='auto',
 parser.add_argument('--experiment', type=str, help='Experiment name')
 args = parser.parse_args()
 
-device = 'cuda:0'  # if args.cuda else 'cpu'
+device = args.device
 
 
 base_dir = 'transfer' + f'/{args.experiment}' if args.experiment else ''

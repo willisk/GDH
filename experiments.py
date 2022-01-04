@@ -12,6 +12,12 @@ import matplotlib as mpl
 from utils import dict_product
 
 
+rename_label = {
+    'acc': 'Accuracy',
+    'val_acc': 'Validation Accuracy',
+}
+
+
 def parse_json(file):
     file_name = file.split('/')[-1].split('.')[0]
     with open(file, 'r') as f:
@@ -49,6 +55,7 @@ sys.argv = [sys.argv[0]] + default_args + sys.argv[1:]
 parser = argparse.ArgumentParser()
 # parser.add_argument('--reversed', action='store_true')
 parser.add_argument('--reload_results', action='store_true')
+parser.add_argument('--reversed', action='store_true')
 parser.add_argument('--experiment', type=str, help='experiment name')
 parser.add_argument('--json', type=parse_json, help='json experiment settings')
 args, transfer_args = parser.parse_known_args()
@@ -102,11 +109,13 @@ results = load_results()
 
 # ----------- validate results -----------
 
-for id, params in param_ids.items():
+runs = reversed(param_ids.items()) if args.reversed else param_ids.items()
+
+for i, (id, params) in enumerate(runs):
 
     if not id in results or args.reload_results:
         print('==========')
-        print(f"Run id '{id}'")
+        print(f"Run id '{id}' [{i}/{len(runs)}]")
         print('\nParams: \n' +
               '\n'.join(f'{k}={v}' for k, v in params.items()) + '\n')
         print('----------')
@@ -133,10 +142,6 @@ for id, params in param_ids.items():
 # plt.rc('ytick', labelsize=BIGGER_SIZE)    # fontsize of the tick labels
 # mpl.rcParams.update({'font.size': MEDIUM_SIZE})
 
-rename_label = {
-    'acc': 'Accuracy',
-}
-
 
 def format_label(label):
     return rename_label[label] if label in rename_label else label.title()
@@ -159,7 +164,8 @@ if label_param == 'IDs':
                              for v in param_ids_first_param]
 
     color_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
-    style_cycle = ['solid', 'dotted', 'dashed', 'dashdot']
+    style_cycle = ['solid', 'dotted', 'dashed', 'dashdot',
+                   (0, (1, 10)), (0, (5, 10)), (0, (3, 10, 1, 10)), (0, (3, 5, 1, 5, 1, 5))]
     cycle_length = min(len(style_cycle),
                        len(labels) // len(first_param_values))
 

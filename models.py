@@ -205,7 +205,8 @@ class TransferBaselineColorMatrix(nn.Module):
     def __init__(self, in_channels, out_channels):
         super().__init__()
 
-        self.color_matrix = nn.Conv2d(in_channels, out_channels, kernel_size=1)
+        self.color_matrix = nn.Conv2d(
+            in_channels, out_channels, kernel_size=1, padding=1)
         # self.color_matrix.weight.data = torch.eye(3).reshape(3, 3, 1, 1)
         # self.color_matrix.bias.data = torch.zeros(3)
 
@@ -223,8 +224,10 @@ class TransferBaselineConv(nn.Module):
     def __init__(self, in_channels, out_channels):
         super().__init__()
 
-        self.conv1 = nn.Conv2d(in_channels, in_channels, kernel_size=5)
-        self.conv2 = nn.Conv2d(in_channels, out_channels, kernel_size=3)
+        self.conv1 = nn.Conv2d(in_channels, in_channels,
+                               kernel_size=5, padding=2)
+        self.conv2 = nn.Conv2d(in_channels, out_channels,
+                               kernel_size=3, padding=1)
 
     def forward(self, x):
 

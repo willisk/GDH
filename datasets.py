@@ -595,69 +595,86 @@ class CrossEntropyTransfer():
         return loss.mean()
 
 
-if __name__ == '__main__':
+# if __name__ == '__main__':
 
-    dataset_from = get_dataset('Cytomorphology_4x')
-    dataset_to = get_dataset('PBCBarcelona_4x')
+    # dataset_from = get_dataset('Cytomorphology_4x')
+    # dataset_to = get_dataset('PBCBarcelona_4x')
 
-    from_classes = dataset_from.classes
-    to_classes = dataset_to.classes
+    # from_classes = dataset_from.classes
+    # to_classes = dataset_to.classes
 
-    N = 5
+    # N = 5
+    # torch.manual_seed(0)
+
+    # # from_classes, to_classes = to_classes, from_classes
+    # loss_fn = CrossEntropyTransfer(from_classes, to_classes)
+    # transfer_map = loss_fn.transfer_map
+
+    # N = 16
+    # x = torch.randint(0, len(from_classes), (N, ))
+    # y = torch.randint(0, len(to_classes), (N, ))
+
+    # transfer_map, _ = get_transfer_mapping_labels(from_classes, to_classes)
+    # # print(f'Transfer map: {transfer_map}')
+    # print(
+    #     f'Transfer map: {get_transfer_mapping_classes(from_classes, to_classes)}')
+    # for true_label, pred in zip(y.tolist(), x.tolist()):
+    #     print('(prediction)', from_classes[pred], 'in',
+    #           f'{ {from_classes[v] for v in transfer_map[true_label]} } <= {to_classes[true_label]}', '(true_label): ',  pred in transfer_map[true_label])
+
+    # correct = [pred in transfer_map[true_label]
+    #            for true_label, pred in zip(y.tolist(), x.tolist())
+    #            if len(transfer_map[true_label]) > 0]
+
+    # print(f'{sum(correct)} / {len(correct)}')
+
+    # print(sum(correct) / len(correct))
+
+    # from utils import accuracy
+    # print(accuracy(x, y, loss_fn.transfer_map))
+
+if __name__ == "__main__":
+    import matplotlib.pyplot as plt
+    from torchvision.utils import make_grid
+    import torchvision.transforms.functional as F
+    from debug import debug
+
     torch.manual_seed(0)
+    np.random.seed(0)
 
-    # from_classes, to_classes = to_classes, from_classes
-    loss_fn = CrossEntropyTransfer(from_classes, to_classes)
-    transfer_map = loss_fn.transfer_map
+    dataset = get_dataset('Cytomorphology-4x')
 
-    N = 16
-    x = torch.randint(0, len(from_classes), (N, ))
-    y = torch.randint(0, len(to_classes), (N, ))
+    # img_dir = 'data/CIFAR10_distorted_1e-01'
+    # dataset = ImageFolderDataset(img_dir=img_dir, folder_labels=True)
+    # debug(dataset)
 
-    transfer_map, _ = get_transfer_mapping_labels(from_classes, to_classes)
-    # print(f'Transfer map: {transfer_map}')
-    print(
-        f'Transfer map: {get_transfer_mapping_classes(from_classes, to_classes)}')
-    for true_label, pred in zip(y.tolist(), x.tolist()):
-        print('(prediction)', from_classes[pred], 'in',
-              f'{ {from_classes[v] for v in transfer_map[true_label]} } <= {to_classes[true_label]}', '(true_label): ',  pred in transfer_map[true_label])
+    train_loader = DataLoader(
+        dataset.train_set, batch_size=64, shuffle=True, num_workers=16)
+    valid_loader = DataLoader(
+        dataset.valid_set, batch_size=64, shuffle=False, num_workers=16)
+    test_loader = DataLoader(
+        dataset.test_set, batch_size=64, shuffle=False, num_workers=16)
 
-    correct = [pred in transfer_map[true_label]
-               for true_label, pred in zip(y.tolist(), x.tolist())
-               if len(transfer_map[true_label]) > 0]
+    # dataset = get_dataset('CIFAR10Distorted')
+    # loader = DataLoader(dataset.train_set, batch_size=32)
 
-    print(f'{sum(correct)} / {len(correct)}')
+    labels = sum(
+        [label_batch.tolist() for batch, label_batch in test_loader], [])
 
-    print(sum(correct) / len(correct))
+    print(labels)
+    # debug(labels)
 
-    from utils import accuracy
-    print(accuracy(x, y, loss_fn.transfer_map))
+    # for x, y in train_loader:
+    #     print(type(y))
+    #     break
+    # print(y)
+    #     x = dataset.unnormalize(x)
 
-# if __name__ == "__main__":
-#     import matplotlib.pyplot as plt
-#     from torchvision.utils import make_grid
-#     import torchvision.transforms.functional as F
+    #     plt.imshow(make_grid(x, normalize=True).permute(1, 2, 0))
+    #     plt.show()
 
-#     torch.manual_seed(0)
-#     np.random.seed(0)
+    #     plt.imshow(make_grid(T.ColorJitter(brightness=.1, hue=.15)(x), normalize=True).permute(1, 2, 0))
+    #     # plt.imshow(make_grid(F.adjust_sharpness(x, 0.45), normalize=True).permute(1, 2, 0))
+    #     plt.show()
 
-#     dataset = get_dataset('CIFAR10Distorted')
-
-#     # img_dir = 'data/CIFAR10_distorted_1e-01'
-#     # dataset = ImageFolderDataset(img_dir=img_dir, folder_labels=True)
-#     debug(dataset)
-
-#     # dataset = get_dataset('CIFAR10Distorted')
-#     # loader = DataLoader(dataset.train_set, batch_size=32)
-
-#     # for x, y in loader:
-#     #     x = dataset.unnormalize(x)
-
-#     #     plt.imshow(make_grid(x, normalize=True).permute(1, 2, 0))
-#     #     plt.show()
-
-#     #     plt.imshow(make_grid(T.ColorJitter(brightness=.1, hue=.15)(x), normalize=True).permute(1, 2, 0))
-#     #     # plt.imshow(make_grid(F.adjust_sharpness(x, 0.45), normalize=True).permute(1, 2, 0))
-#     #     plt.show()
-
-#     #     break
+    #     break

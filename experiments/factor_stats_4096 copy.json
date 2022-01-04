@@ -4,18 +4,18 @@
     "--network=Unet",
     "--model_from=models/Cytomorphology-4x_Resnet34.ckpt",
     "--lr=1e-3",
-    "--f_stats=1e-7",
     "--size=4096",
     "--batch_size=64",
     "--num_epochs=50"
   ],
   "param_grid": {
-    "network": ["Unet", "UnetSmp", "BaselineColorMatrix", "BaselineConv"],
-    "size": [128, 512, 2048, 8192, 32768]
+    "f_stats": [1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9, 1e-40],
+    "network": ["Unet", "BaselineColorMatrix", "BaselineConv"],
+    "unsupervised": ["True", "False"]
   },
   "plot": {
-    "label_param": "network",
-    "x_param": "size",
-    "y_param": "acc"
+    "label_param": "IDs",
+    "x_param": "epoch",
+    "y_param": "val_acc"
   }
 }

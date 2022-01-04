@@ -22,7 +22,7 @@ parser.add_argument(
     default='Resnet18')
 parser.add_argument('--ckpt', default='auto',
                     help='Model checkpoint for saving/loading.')
-parser.add_argument('--cuda', action='store_true')
+parser.add_argument('--device', default='cuda:0')
 parser.add_argument('--num_epochs', type=int, default=5,
                     help='Number of training epochs.')
 parser.add_argument('--lr', type=float, default=0.01, help='learning rate')
@@ -38,7 +38,7 @@ if 'ipykernel' in sys.argv[0]:
 else:
     args = parser.parse_args()
 
-device = 'cuda'  # if args.cuda else 'cpu'
+device = args.device
 
 if args.ckpt == 'auto':
     args.ckpt = f'models/{args.dataset}_{args.network}.ckpt'

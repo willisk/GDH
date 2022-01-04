@@ -7,8 +7,7 @@
     "--f_stats=1e-7",
     "--size=4096",
     "--batch_size=64",
-    "--num_epochs=50",
-    "--cuda"
+    "--num_epochs=50"
   ],
   "param_grid": {
     "network": ["Unet", "UnetSmp", "BaselineColorMatrix", "BaselineConv"],
@@ -18,6 +17,6 @@
   "plot": {
     "label_param": "IDs",
     "x_param": "epoch",
-    "y_param": "acc"
+    "y_param": "val_acc"
   }
 }
