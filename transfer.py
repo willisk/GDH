@@ -254,7 +254,7 @@ for epoch in range(init_epoch, args.num_epochs):
         loss_crit = loss_fn(logits, y)
 
         loss_bn = args.f_stats * \
-            sum(bn_losses) if args.f_stats != 0 else _zero
+            sum(bn_losses)  # if args.f_stats != 0 else _zero
         loss_reg = args.f_reg * \
             (normalize(x_transfer) + (x - x_transfer).norm()
              ) if args.f_reg != 0 else _zero
@@ -282,7 +282,7 @@ for epoch in range(init_epoch, args.num_epochs):
     valid_acc_old = valid_acc
     valid_acc = test_accuracy(
         full_model, valid_loader, transfer_map=transfer_map, device=device)
-    metrics['valid_acc'] = valid_acc
+    metrics['val_acc'] = valid_acc
     interpolate_valid_acc = torch.linspace(
         valid_acc_old, valid_acc, steps=len(train_loader)).tolist()
     logs['val_acc'].extend(interpolate_valid_acc)

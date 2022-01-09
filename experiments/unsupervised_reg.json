@@ -7,7 +7,8 @@
     "--f_stats=1e-6",
     "--size=0",
     "--batch_size=64",
-    "--num_epochs=100"
+    "--num_epochs=100",
+    "--unsupervised=True"
   ],
   "param_grid": {
     "network": ["Unet", "BaselineConv"],

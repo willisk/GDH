@@ -72,7 +72,7 @@ transfer_args = [sys.argv[0], f'--experiment={args.experiment}'] + \
     transfer_base_args + transfer_args
 
 
-def run_transfer(params):
+def get_transfer_results(params):
     global transfer_module
     sys.argv = sum([[f'--{k}={v}']
                    for k, v in params.items()], transfer_args)
@@ -80,7 +80,10 @@ def run_transfer(params):
         import transfer as transfer_module
     else:
         importlib.reload(transfer_module)
-    return transfer_module
+    transfer_results = transfer_module.logs
+    transfer_results['args'] = transfer_module.args
+    transfer_results['args_log'] = transfer_module.args_log
+    return transfer_results
 
 
 # param_dict_product = dict_product(param_grid)
@@ -115,15 +118,16 @@ for i, (id, params) in enumerate(runs):
 
     if not id in results or args.reload_results:
         print('==========')
-        print(f"Run id '{id}' [{i}/{len(runs)}]")
+        print(f"Run id '{id}' [{i + 1}/{len(runs)}]")
         print('\nParams: \n' +
               '\n'.join(f'{k}={v}' for k, v in params.items()) + '\n')
         print('----------')
 
-        transfer_module = run_transfer(params)
+        results_id = get_transfer_results(params)
         results = load_results()
         # results[id] = parse_logs(transfer_module.logs)
-        results[id] = transfer_module.logs
+        results[id] = results_id
+        # results['num_epochs'] = results_id.args.num_epochs // not clean
         torch.save(results, results_loc)
     else:
         print(f"Run with id '{id}' found, skipping")
@@ -206,6 +210,15 @@ x = epochs if x_param == 'epoch' else param_grid[x_param]
 for i, label in enumerate(labels):
     if x_param == 'epoch':
         y = smoothen(results[label][y_param], smoothing=201)
+        x_ticks_every = 10  # every 10 epochs
+        num_epochs = results[label]['args'].num_epochs
+        batch_size = results[label]['args'].batch_size
+        runs_per_epoch = len(x) // num_epochs
+        skip = runs_per_epoch * x_ticks_every
+        x_ticks = list(x[::skip]) + [x[-1]]
+        x_ticks_label = [(xi // runs_per_epoch)
+                         for xi in x][::skip] + [(x[-1] + 1) // runs_per_epoch]  # inexact, but whatever
+        plt.xticks(x_ticks, x_ticks_label)
     else:
         filtered_ids = [id
                         for id, params in param_ids.items()
@@ -216,6 +229,7 @@ for i, label in enumerate(labels):
         plt.xticks(x)
         plt.xscale('log')
 
+    # print(label, len(x), len(y), len(results[label][y_param]))
     color, linestyle = (None, None) if param_ids_styles is None \
         else param_ids_styles[i]
 
@@ -226,7 +240,12 @@ plt.plot(x, [no_transfer_acc] * len(x),
          label='No Transfer Accuracy', color='black', linestyle='dashed')
 
 
-plt.title(f"Experiment '{format_label(args.experiment)}' (50 Epochs)")
+title = f"Experiment '{format_label(args.experiment)}'"
+# if x_param == 'epoch':
+#     num_epochs = results[id]['args'].num_epochs
+#     title = title + f' ({num_epochs} epochs)'
+
+plt.title(title)
 plt.ylabel(format_label(y_param))
 plt.xlabel(format_label(x_param))
 
