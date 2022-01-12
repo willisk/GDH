@@ -53,6 +53,8 @@ def log(msg):
         f.write(msg + '\n')
 
 
+torch.manual_seed(4)
+
 dataset = get_dataset(args.dataset)
 train_loader = DataLoader(
     dataset.train_set, batch_size=args.batch_size, shuffle=True, num_workers=16)

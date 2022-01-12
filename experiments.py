@@ -209,7 +209,7 @@ x = epochs if x_param == 'epoch' else param_grid[x_param]
 
 for i, label in enumerate(labels):
     if x_param == 'epoch':
-        y = smoothen(results[label][y_param], smoothing=201)
+        y = smoothen(results[label][y_param], smoothing=1)
         x_ticks_every = 10  # every 10 epochs
         num_epochs = results[label]['args'].num_epochs
         batch_size = results[label]['args'].batch_size

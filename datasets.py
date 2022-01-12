@@ -435,8 +435,8 @@ def create_distorted_dataset(dataset, folder_out='auto', strength=0.1, batch_siz
 
 
 def random_split_frac(dataset, fracs, seed=None):
-    if seed is not None:
-        torch.manual_seed(seed)
+    # if seed is not None:
+    #     torch.manual_seed(seed)
     lengths = [int(len(dataset) * frac) for frac in fracs]
     lengths[-1] = len(dataset) - sum(lengths[:-1])
 
@@ -604,7 +604,7 @@ class CrossEntropyTransfer():
     # to_classes = dataset_to.classes
 
     # N = 5
-    # torch.manual_seed(0)
+    # torch.manual_seed(4)
 
     # # from_classes, to_classes = to_classes, from_classes
     # loss_fn = CrossEntropyTransfer(from_classes, to_classes)
@@ -639,10 +639,11 @@ if __name__ == "__main__":
     import torchvision.transforms.functional as F
     from debug import debug
 
-    torch.manual_seed(0)
+    torch.manual_seed(4)
     np.random.seed(0)
 
-    dataset = get_dataset('Cytomorphology-4x')
+    dataset = get_dataset('PBCBarcelona-4x')
+    # dataset = get_dataset('Cytomorphology-4x')
 
     # img_dir = 'data/CIFAR10_distorted_1e-01'
     # dataset = ImageFolderDataset(img_dir=img_dir, folder_labels=True)
@@ -655,26 +656,23 @@ if __name__ == "__main__":
     test_loader = DataLoader(
         dataset.test_set, batch_size=64, shuffle=False, num_workers=16)
 
-    # dataset = get_dataset('CIFAR10Distorted')
-    # loader = DataLoader(dataset.train_set, batch_size=32)
+    # # dataset = get_dataset('CIFAR10Distorted')
+    # # loader = DataLoader(dataset.train_set, batch_size=32)
 
-    labels = sum(
-        [label_batch.tolist() for batch, label_batch in test_loader], [])
+    # labels = sum(
+    #     [label_batch.tolist() for batch, label_batch in test_loader], [])
 
-    print(labels)
-    # debug(labels)
+    # print(labels)
+    # # debug(labels)
 
-    # for x, y in train_loader:
-    #     print(type(y))
-    #     break
-    # print(y)
-    #     x = dataset.unnormalize(x)
+    for x, y in train_loader:
+        # x = dataset.unnormalize(x)
 
-    #     plt.imshow(make_grid(x, normalize=True).permute(1, 2, 0))
-    #     plt.show()
+        plt.imshow(make_grid(x, normalize=True).permute(1, 2, 0))
+        plt.show()
 
-    #     plt.imshow(make_grid(T.ColorJitter(brightness=.1, hue=.15)(x), normalize=True).permute(1, 2, 0))
-    #     # plt.imshow(make_grid(F.adjust_sharpness(x, 0.45), normalize=True).permute(1, 2, 0))
-    #     plt.show()
+        # plt.imshow(make_grid(T.ColorJitter(brightness=.1, hue=.15)(x), normalize=True).permute(1, 2, 0))
+        # plt.imshow(make_grid(F.adjust_sharpness(x, 0.45), normalize=True).permute(1, 2, 0))
+        # plt.show()
 
-    #     break
+        break

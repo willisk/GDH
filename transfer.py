@@ -42,6 +42,8 @@ parser.add_argument('--unsupervised', type=str2bool,
                     help='Don\'t use label information.')
 parser.add_argument('--fine_tune', type=str2bool,
                     help='Fine tune classifier head')
+parser.add_argument('--shuffle', type=str2bool, default=True,
+                    help='Shuffle training dataset.')
 
 parser.add_argument('--device', default='cuda')
 parser.add_argument('--resume_training', action='store_true')
@@ -106,7 +108,7 @@ def log(msg):
 args_log = '\n'.join(f'{k}={v}' for k, v in vars(args).items())
 log(args_log + '\n')
 
-torch.manual_seed(0)
+torch.manual_seed(4)
 
 # XXX: enable augmentation
 dataset_to = get_dataset(args.dataset_to, train_augmentation=False)
@@ -114,7 +116,7 @@ train_size = min(args.size, len(dataset_to.train_set)
                  ) if args.size > 0 else len(dataset_to.train_set)
 train_set = Subset(dataset_to.train_set, range(train_size))
 train_loader = DataLoader(
-    train_set, batch_size=args.batch_size, shuffle=True, num_workers=16)
+    train_set, batch_size=args.batch_size, shuffle=args.shuffle, num_workers=16)
 valid_loader = DataLoader(
     dataset_to.valid_set, batch_size=args.batch_size, shuffle=False, num_workers=16)
 test_loader = DataLoader(
