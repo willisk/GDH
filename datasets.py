@@ -48,6 +48,43 @@ EQUIVALENCE_CLASSES = {
     'PMO': 'ig',
 }
 
+EQUIVALENCE_CLASSES_2 = {
+    #equivalence classes when using the more differentiated PBC dataset
+    'BAS': 'basophil',
+    'EBO': 'erythroblast',
+    'EOS': 'eosinophil',
+    'KSC': INVALID_CLASS,
+    'LYA': INVALID_CLASS,
+    'LYT': 'lymphocyte',
+    'MMZ': 'metamyelocyte',
+    'MOB': 'monocyte',
+    'MON': 'monocyte',
+    'MYB': 'myelocyte',
+    'MYO': INVALID_CLASS,
+    'NGB': 'neutrophil_banded',
+    'NGS': 'neutrophil_segmented',
+    'PMB': INVALID_CLASS,
+    'PMO': 'promyelocyte'
+}
+
+#explaination:
+#Cytomorphology Class:
+    #'BAS': 'basophil',
+    #'EBO': 'erythroblast',
+    #'EOS': 'eosinophil',
+    #'KSC': 'smudge cells,
+    #'LYA': 'atypical lymphocytes',
+    #'LYT': 'lymphocyte',
+    #'MMZ': 'metamyelocyte',
+    #'MOB': 'monoblast',
+    #'MON': 'monocyte',
+    #'MYB': 'myelocyte',
+    #'MYO': 'myeloblast',
+    #'NGB': 'neutrophil_banded',
+    #'NGS': 'neutrophil_segmented',
+    #'PMB': 'promyelocyte_bilobed',
+    #'PMO': 'promyelocyte',
+
 
 def get_dataset(dataset, train_augmentation=False):
     if dataset == 'PBCBarcelona':
