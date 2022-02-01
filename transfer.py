@@ -59,7 +59,7 @@ args = parser.parse_args()
 device = args.device
 
 
-base_dir = 'transfer' + f'/{args.experiment}' if args.experiment else ''
+base_dir = 'transfer' + f'/{args.experiment}' if args.experiment else 'transfer'
 
 if args.save_loc == 'auto':
     append_loc_sci = [f"{a.replace('_', '-')}={getattr(args, a):1.0e}"
