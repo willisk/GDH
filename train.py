@@ -12,6 +12,8 @@ from models import get_model
 
 import argparse
 
+number_workers = 16
+
 os.makedirs('models', exist_ok=True)
 
 parser = argparse.ArgumentParser()
@@ -57,11 +59,11 @@ torch.manual_seed(4)
 
 dataset = get_dataset(args.dataset)
 train_loader = DataLoader(
-    dataset.train_set, batch_size=args.batch_size, shuffle=True, num_workers=16)
+    dataset.train_set, batch_size=args.batch_size, shuffle=True, num_workers=number_workers)
 valid_loader = DataLoader(
-    dataset.valid_set, batch_size=args.batch_size, shuffle=False, num_workers=16)
+    dataset.valid_set, batch_size=args.batch_size, shuffle=False, num_workers=number_workers)
 test_loader = DataLoader(
-    dataset.test_set, batch_size=args.batch_size, shuffle=False, num_workers=16)
+    dataset.test_set, batch_size=args.batch_size, shuffle=False, num_workers=number_workers)
 
 in_channels = dataset.in_channels
 num_classes = dataset.num_classes
