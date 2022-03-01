@@ -34,7 +34,7 @@ parser.add_argument('--num_epochs', type=int, default=3,
 parser.add_argument('--lr', type=float, default=0.1, help='Learning rate')
 parser.add_argument('--batch_size', type=int, default=64, help='Batch size')
 parser.add_argument('--f_stats', type=float,
-                    default=1e-3, help='Stats multiplier')
+                    default=0, help='Stats multiplier')
 parser.add_argument('--f_reg', type=float, default=0,
                     help='Regularization multiplier')
 
@@ -42,11 +42,12 @@ parser.add_argument('--unsupervised', type=str2bool,
                     help='Don\'t use label information.')
 parser.add_argument('--fine_tune', type=str2bool,
                     help='Fine tune classifier head')
+parser.add_argument('--retrain_baseline', type=str2bool,
+                    help='Retrain classification model balseline.')
 parser.add_argument('--shuffle', type=str2bool, default=True,
                     help='Shuffle training dataset.')
 
 parser.add_argument('--device', default='cuda')
-parser.add_argument('--resume_training', action='store_true')
 parser.add_argument('--reset', action='store_true')
 parser.add_argument('--save_best', action='store_true',
                     help='Save only the best models (measured in valid accuracy).')
@@ -59,7 +60,7 @@ args = parser.parse_args()
 device = args.device
 
 
-base_dir = 'transfer' + f'/{args.experiment}' if args.experiment else 'transfer'
+base_dir = 'transfer' + (f'/{args.experiment}' if args.experiment else '')
 
 if args.save_loc == 'auto':
     append_loc_sci = [f"{a.replace('_', '-')}={getattr(args, a):1.0e}"
@@ -67,7 +68,7 @@ if args.save_loc == 'auto':
                       if sum([f'--{a}' in arg for arg in sys.argv])]
 
     append_loc_v = [f"{a.replace('_', '-')}={getattr(args, a)}"
-                    for a in ['size', 'unsupervised', 'fine_tune']
+                    for a in ['size', 'unsupervised', 'fine_tune', 'retrain_baseline']
                     if sum([f'--{a}' in arg for arg in sys.argv])]
 
     append_args_to_loc = '_'.join(append_loc_sci + append_loc_v)
@@ -146,6 +147,7 @@ in_channels = dataset_to.in_channels
 out_channels = classifier_input_shape[0]
 
 if os.path.exists(model_ckpt) and not args.reset:
+    print('loading', model_ckpt)
     state_dict = torch.load(model_ckpt, map_location=device)
     transfer_model = state_dict['model']
     optimizer = state_dict['optimizer']
@@ -159,9 +161,13 @@ else:
     logs = defaultdict(list)
 
     transfer_model = get_model(args.network, in_channels, out_channels)
-    transfer_model.to(device)
 
     optimizer = None
+
+if args.retrain_baseline:
+    transfer_model = classifier
+
+transfer_model.to(device)
 
 
 class FullModel(nn.Module):
@@ -187,12 +193,16 @@ class FullModel(nn.Module):
         self.classifier.train(False)    # freeze classifier batchnorm layers
 
 
-full_model = FullModel()
+if args.retrain_baseline:
+    full_model = classifier
+else:
+    full_model = FullModel()
 
 if optimizer is None:
     parameters = list(transfer_model.parameters())
-    if args.fine_tune:
+    if args.fine_tune and not args.retrain_baseline:
         parameters += list(classifier.head.parameters())
+
     optimizer = torch.optim.Adam(parameters, lr=args.lr)
 
 
@@ -213,7 +223,6 @@ valid_acc = test_accuracy(full_model, valid_loader, transfer_map=transfer_map,
 logs['no_transfer_acc'] = [no_transfer_valid_acc]
 
 ##################################### Training #####################################
-# SETUP hooks
 
 bn_layers = get_bn_layers(classifier)
 
@@ -228,8 +237,10 @@ def layer_hook_wrapper(idx):
     return hook
 
 
-for l, layer in enumerate(bn_layers):
-    layer.register_forward_hook(layer_hook_wrapper(l))
+if args.f_stats != 0:
+    print('adding hooks')
+    for l, layer in enumerate(bn_layers):
+        layer.register_forward_hook(layer_hook_wrapper(l))
 
 
 def normalize(x):
@@ -241,6 +252,7 @@ _zero = torch.zeros([1], device=device)
 log('Training transfer model ' f'{args.network}, '
     f'params:\t{num_params(transfer_model) / 1000:.2f} K')
 
+
 full_model.to(device)
 
 for epoch in range(init_epoch, args.num_epochs):
@@ -251,23 +263,20 @@ for epoch in range(init_epoch, args.num_epochs):
         x, y = x.to(device), y.to(device)
 
         # logits = full_model(x)
-        x_transfer = transfer_model(x)
+        x_transfer = transfer_model(x) if not args.retrain_baseline else x
+
         logits = classifier(x_transfer)
         loss_crit = loss_fn(logits, y)
 
-        loss_bn = args.f_stats * \
-            sum(bn_losses)  # if args.f_stats != 0 else _zero
-        loss_reg = args.f_reg * \
-            (normalize(x_transfer) + (x - x_transfer).norm()
-             ) if args.f_reg != 0 else _zero
+        loss_bn = args.f_stats * sum(bn_losses) if args.f_stats != 0 else _zero
+        loss_reg = args.f_reg * (normalize(x_transfer) + (x - x_transfer).norm()) if args.f_reg != 0 else _zero
 
         loss = loss_bn + loss_reg
 
         y_pred = logits.argmax(dim=1)
         acc = accuracy(y_pred, y, transfer_map=transfer_map)
 
-        metrics = {'acc': acc, 'loss_bn': loss_bn.item(),
-                   'loss_reg': loss_reg.item()}
+        metrics = {'acc': acc, 'loss_bn': loss_bn.item(), 'loss_reg': loss_reg.item()}
 
         if not args.unsupervised:
             loss += loss_crit
@@ -282,14 +291,11 @@ for epoch in range(init_epoch, args.num_epochs):
 
     full_model.eval()
     valid_acc_old = valid_acc
-    valid_acc = test_accuracy(
-        full_model, valid_loader, transfer_map=transfer_map, device=device)
+    valid_acc = test_accuracy(full_model, valid_loader, transfer_map=transfer_map, device=device)
     metrics['val_acc'] = valid_acc
-    interpolate_valid_acc = torch.linspace(
-        valid_acc_old, valid_acc, steps=len(train_loader)).tolist()
+    interpolate_valid_acc = torch.linspace(valid_acc_old, valid_acc, steps=len(train_loader)).tolist()
     logs['val_acc'].extend(interpolate_valid_acc)
-    logs['no_transfer_acc'] = [no_transfer_valid_acc] * \
-        ((epoch + 1) * len(train_loader))
+    logs['no_transfer_acc'] = [no_transfer_valid_acc] * ((epoch + 1) * len(train_loader))
 
     log(f'[{epoch + 1}/{args.num_epochs}] ' +
         ', '.join([f'{k} {v:.3f}' for k, v in metrics.items()]))

@@ -16,12 +16,13 @@ $run transfer.py -- \
 --dataset_to PBCBarcelona-4x \
 --network Unet \
 --model_from models/Cytomorphology-4x_Resnet34.ckpt \
---cuda \
 --size 128 \
---lr 1e-3 \
---f_stats 1e-7 \
+--lr 1e-1 \
+--f_stats 0 \
 --batch_size 64 \
---num_epochs 30
+--num_epochs 100 \
+--retrain_baseline \
+--reset
 
 # $run train.py -- \
 # --network Resnet34 \
@@ -52,8 +53,6 @@ $run transfer.py -- \
 #         --f_stats $f_st \
 #         --batch_size 64 \
 #         --num_epochs 30
-
-#         # --resume_training
 
 #         # --dataset_to CIFAR10Distorted \
 #         # --model_from models/CIFAR10_resnet34.ckpt \

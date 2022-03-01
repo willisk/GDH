@@ -10,6 +10,13 @@ $run train.py -- \
 --num_epochs 20 \
 --save_best \
 
+# $run train.py -- \
+# --network Resnet34 \
+# --dataset SVHN \
+# --lr 0.01 \
+# --num_epochs 5 \
+# --save_best \
+
 # for dataset in PBCBarcelona Cytomorphology-4x Cytomorphology-4x-PBC 
 #     do
 

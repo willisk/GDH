@@ -51,6 +51,28 @@ def test_accuracy(model, data_loader, transform=None, transfer_map=None, name=No
     return acc
 
 
+@torch.no_grad()
+def confusion_matrix(model, data_loader, transform=None, transfer_map=None, name=None, device='cuda'):
+    num_total = 0
+    num_correct = 0
+    model.eval()
+    model.to(device)
+    for x, y in data_loader:
+        x, y = x.to(device), y.to(device)
+        if transform is not None:
+            x = transform(x)
+        out = model(x)
+        predictions = out.argmax(dim=1)
+        correct = labels_correct(predictions, y, transfer_map=transfer_map)
+        num_correct += sum(correct)
+        num_total += len(correct)
+
+    acc = num_correct / num_total if num_total > 0 else 0   # this shouldn't happen
+    if name is not None:
+        print(f'{name} accuracy: {acc:.3f}')
+    return acc
+
+
 def transpose_dict(d):
     if isinstance(d, dict):
         return [{k: v for k, v in zip(d.keys(), vals)} for vals in zip(*d.values())]

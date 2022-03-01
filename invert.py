@@ -34,7 +34,6 @@ parser.add_argument('--unsupervised', action='store_true',
                     help='Don\'t use label information.')
 
 parser.add_argument('--device', default='cuda')
-parser.add_argument('--resume_training', action='store_true')
 parser.add_argument('--reset', action='store_true')
 parser.add_argument('--save_best', action='store_true',
                     help='Save only the best models (measured in valid accuracy).')
@@ -48,7 +47,7 @@ device = args.device
 
 if args.save_loc == 'auto':
     save_loc = args.model.replace(
-        '.ckpt', f'_lr={args.lr:1.0e}_f-st={args.f_stats:1.0e}_f-reg={args.f_reg:1.0e}')
+        '.ckpt', ('_unsupervised' if args.unsupervised else '') + f'_lr={args.lr:1.0e}_f-st={args.f_stats:1.0e}_f-reg={args.f_reg:1.0e}')
     save_loc = save_loc.replace('models', 'invert')
 else:
     save_loc = args.save_loc
@@ -146,8 +145,6 @@ def jitter(x):
 
 
 _zero = torch.zeros([1], device=device)
-
-# if not os.path.exists(inputs_ckpt) or args.resume_training or args.reset:
 
 log(f'Inverting inputs for {args.model}')
 

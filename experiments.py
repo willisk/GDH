@@ -63,6 +63,7 @@ args, transfer_args = parser.parse_known_args()
 if args.json is not None:
     transfer_base_args += args.json['transfer_base_args']
     param_grid = args.json['param_grid']
+    forced_combinations = args.json['forced_combinations']
 
     if args.experiment is None:
         args.experiment = args.json['experiment']
@@ -85,20 +86,32 @@ def get_transfer_results(params):
     transfer_results['args_log'] = transfer_module.args_log
     return transfer_results
 
-
-# param_dict_product = dict_product(param_grid)
-# if args.reversed:
-#     param_dict_product = reversed(param_dict_product)
-
 def get_param_identifier(params):
     return ' '.join([f'{p}={v}' for p, v in params.items()])
 
 
-param_ids = {get_param_identifier(params): params
-             for params in dict_product(param_grid)}
+def skip_if_forced(params):
+    for forced in forced_combinations:
+        if list(forced.items())[0] in params.items() and not forced.items() <= params.items():
+            return False
+    return True
+
+
+# ids to parameters mapping
+# all the transfer.py parameter combinations to be run
+
+# filter by enforcing parameter combinations (because they would have no effect on the outcome)
+# if first parameter configuration in element of forced_combination is found, the rest must follow
+# otherwise it will be skipped
+ids_to_params = {
+    get_param_identifier(params): params
+    for params in dict_product(param_grid)
+    if skip_if_forced(params)
+}
+
 
 base_dir = f'transfer/{args.experiment}'
-results_loc = f'{base_dir}/results.pt' if args.experiment else f'transfer/results_{hash(tuple(param_ids.values()))}.pt'
+results_loc = f'{base_dir}/results.pt' if args.experiment else f'transfer/results_{hash(tuple(ids_to_params.values()))}.pt'
 
 
 def load_results():  # useful when running multiple gpus that are accessing the same file
@@ -110,9 +123,9 @@ def load_results():  # useful when running multiple gpus that are accessing the 
 results = load_results()
 
 
-# ----------- validate results -----------
+# ----------- validate results / run transfer.py experiment -----------
 
-runs = reversed(param_ids.items()) if args.reversed else param_ids.items()
+runs = reversed(ids_to_params.items()) if args.reversed else ids_to_params.items()
 
 for i, (id, params) in enumerate(runs):
 
@@ -125,9 +138,7 @@ for i, (id, params) in enumerate(runs):
 
         results_id = get_transfer_results(params)
         results = load_results()
-        # results[id] = parse_logs(transfer_module.logs)
         results[id] = results_id
-        # results['num_epochs'] = results_id.args.num_epochs // not clean
         torch.save(results, results_loc)
     else:
         print(f"Run with id '{id}' found, skipping")
@@ -150,48 +161,9 @@ for i, (id, params) in enumerate(runs):
 def format_label(label):
     return rename_label[label] if label in rename_label else label.title()
 
-
-label_param = args.json['plot']['label_param']
-x_param = args.json['plot']['x_param']
-y_param = args.json['plot']['y_param']
-
-if label_param == 'IDs':
-    labels = param_ids.keys()
-    use_filter = False
-
-    first_param_values = next(iter(param_grid.values()))
-
-    param_ids_first_param = [next(iter(params.values()))
-                             for params in dict_product(param_grid)]
-
-    param_ids_style_types = [first_param_values.index(v)
-                             for v in param_ids_first_param]
-
-    color_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
-    style_cycle = ['solid', 'dotted', 'dashed', 'dashdot',
-                   (0, (1, 10)), (0, (5, 10)), (0, (3, 10, 1, 10)), (0, (3, 5, 1, 5, 1, 5))]
-    cycle_length = min(len(style_cycle),
-                       len(labels) // len(first_param_values))
-
-    param_ids_styles = [(color_cycle[k], style_cycle[i % cycle_length])
-                        for i, k in enumerate(param_ids_style_types)]
-
-else:
-    labels = param_grid[label_param]
-    use_filter = True
-    param_ids_styles = None
-
-# print(labels)
-
-
 def parse_logs(values):
     return values[-1]
     # return {k: max(v) for k, v in logs.items()}
-
-
-next = next(iter(results.values()))
-no_transfer_acc = parse_logs(next['no_transfer_acc'])
-epochs = range(len(next['acc']))
 
 
 def smoothen(x, smoothing=11):
@@ -205,37 +177,54 @@ def smoothen(x, smoothing=11):
     return x
 
 
-x = epochs if x_param == 'epoch' else param_grid[x_param]
 
-for i, label in enumerate(labels):
-    if x_param == 'epoch':
-        y = smoothen(results[label][y_param], smoothing=1)
-        x_ticks_every = 10  # every 10 epochs
-        num_epochs = results[label]['args'].num_epochs
-        batch_size = results[label]['args'].batch_size
-        runs_per_epoch = len(x) // num_epochs
-        skip = runs_per_epoch * x_ticks_every
-        x_ticks = list(x[::skip]) + [x[-1]]
-        x_ticks_label = [(xi // runs_per_epoch)
-                         for xi in x][::skip] + [(x[-1] + 1) // runs_per_epoch]  # inexact, but whatever
-        plt.xticks(x_ticks, x_ticks_label)
-    else:
-        filtered_ids = [id
-                        for id, params in param_ids.items()
-                        if (params[label_param] == label if use_filter else True)]
+label_param = args.json['plot']['label_param']
+x_param = args.json['plot']['x_param']
+y_param = args.json['plot']['y_param']
 
-        y = [parse_logs(results[id][y_param]) for id in filtered_ids]
+all_ids = ids_to_params.keys()
 
-        plt.xticks(x)
-        plt.xscale('log')
+x = param_grid[x_param]
 
-    # print(label, len(x), len(y), len(results[label][y_param]))
-    color, linestyle = (None, None) if param_ids_styles is None \
-        else param_ids_styles[i]
+# labels to ids mapping
+# labels are grouped by param_grid[x_param],
+# labels do not contain x_param in identifier (or simply contain label_param, if it is != ''), 
+# but map to full run id (including x_param)
+labels_to_ids = {xi: {
+    get_param_identifier({k: v for k, v in params.items() if k != x_param and (k == label_param or label_param == '')}): id
+    for id, params in ids_to_params.items() if params[x_param] == xi
+} for xi in x}
 
-    plt.plot(x, y, color=color, linestyle=linestyle, label=label)
+# same as labels_to_ids mapping, but transposed, to enable iteration
+# i.e. x_param is not grouped first, but last
+from collections import defaultdict
+labels_to_ids_transposed = defaultdict(dict)
+
+for xi, grouped_labels in labels_to_ids.items():
+    for label, id in grouped_labels.items():
+        labels_to_ids_transposed[label][xi] = id
 
 
+for i, (label, ids_by_x_param) in enumerate(labels_to_ids_transposed.items()):
+
+    y = [parse_logs(results[ids_by_x_param[xi]][y_param])  for xi in x]
+
+    # plt.xscale('log')
+    plt.xticks(x)
+
+
+
+    plt.plot(x, y, label=label)
+
+    # # print(label, len(x), len(y), len(results[label][y_param]))
+    # color, linestyle = (None, None) if param_ids_styles is None \
+    #     else param_ids_styles[i]
+
+    # plt.plot(x, y, color=color, linestyle=linestyle, label=label)
+
+
+
+no_transfer_acc = parse_logs(next(iter(results.values()))['no_transfer_acc'])
 plt.plot(x, [no_transfer_acc] * len(x),
          label='No Transfer Accuracy', color='black', linestyle='dashed')
 

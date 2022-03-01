@@ -1,7 +1,9 @@
 run='python -m IPython --no-banner --no-confirm-exit'
 
-for i in {1..50}
+for i in {1..10}
 do
-    $run experiments.py -- \
-    --json experiments/unsupervised_256_sanity.json
+$run experiments.py -- \
+--json experiments/baseline_sizes.json 
+
+# --reload_results
 done
