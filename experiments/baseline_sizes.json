@@ -1,0 +1,28 @@
+{
+  "transfer_base_args": [
+    "--dataset_to=PBCBarcelona-4x",
+    "--model_from=models/Cytomorphology-4x_Resnet34.ckpt",
+    "--lr=1e-3",
+    "--batch_size=64",
+    "--num_epochs=50",
+    "--unsupervised=False",
+    "--shuffle=True"
+  ],
+  "param_grid": {
+    "network": ["Unet", "BaselineConv"],
+    "size": [64, 128, 256, 512, 1024, 2048, 4096],
+    "f_reg": [0, 1e-4],
+    "fine_tune": ["True", "False"],
+    "retrain_baseline": ["True", "False"]
+  },
+  "forced_combinations": [
+    {"fine_tune": "True", "retrain_baseline": "False"},
+    {"retrain_baseline": "True", "f_reg": 0}
+  ],
+  "plot": {
+    "label_param": "",
+    "x_param": "size",
+    "y_param": "val_acc"
+  }
+}
+
